@@ -1,0 +1,777 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/llm">
+                    <img src="">
+                </a>
+                <div class="title">
+                    llm
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="LLM.html">
+                                LLM
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Message.html">
+                                Message
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Role.html">
+                                Role
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LlmStream.html">
+                                LlmStream
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMRequest.html">
+                                LLMRequest
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMResponse.html">
+                                LLMResponse
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMError.html">
+                                LLMError
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ProviderConfig.html">
+                                ProviderConfig
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolDef.html">
+                                ToolDef
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolCall.html">
+                                ToolCall
+                            </a>
+                        </li>
+                        <li>
+                            <a href="OpenAI.html">
+                                OpenAI
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Anthropic.html">
+                                Anthropic
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Ollama.html">
+                                Ollama
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Gemini.html">
+                                Gemini
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    LLMRequest
+                </h1>
+                <div class="module-description">
+                    <p>a chat request to an LLM provider.</p>
+<p>Build with <code>LLM.chat-request</code>, <code>LLM.chat-request-with-tools</code>,
+<code>LLM.chat-request-json</code>, or <code>LLM.chat-request-with-schema</code> rather than
+constructing directly.</p>
+<ul>
+<li><code>model</code>: provider-specific model identifier</li>
+<li><code>messages</code>: the conversation history</li>
+<li><code>max-tokens</code>: maximum output tokens</li>
+<li><code>temperature</code>: sampling temperature (0.0 to 2.0)</li>
+<li><code>tools</code>: tool definitions (empty array if none)</li>
+<li><code>format-mode</code>: <code>format-text</code>, <code>format-json</code>, or <code>format-json-schema</code></li>
+<li><code>format-schema</code>: JSON schema for structured output (used when mode is
+<code>format-json-schema</code>)</li>
+</ul>
+
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#copy">
+                        <h3 id="copy">
+                            copy
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>copies a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#delete">
+                        <h3 id="delete">
+                            delete
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>deletes a <code>LLMRequest</code>. Should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#format-mode">
+                        <h3 id="format-mode">
+                            format-mode
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>format-mode</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#format-schema">
+                        <h3 id="format-schema">
+                            format-schema
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref JSON a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>format-schema</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#init">
+                        <h3 id="init">
+                            init
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [String, (Array Message), Int, Double, (Array ToolDef), Int, JSON] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#max-tokens">
+                        <h3 id="max-tokens">
+                            max-tokens
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>max-tokens</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#messages">
+                        <h3 id="messages">
+                            messages
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref (Array Message) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>messages</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#model">
+                        <h3 id="model">
+                            model
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref String a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>model</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#prn">
+                        <h3 id="prn">
+                            prn
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>LLMRequest</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-format-mode">
+                        <h3 id="set-format-mode">
+                            set-format-mode
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, Int] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>format-mode</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-format-mode!">
+                        <h3 id="set-format-mode!">
+                            set-format-mode!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), Int] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>format-mode</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-format-schema">
+                        <h3 id="set-format-schema">
+                            set-format-schema
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, JSON] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>format-schema</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-format-schema!">
+                        <h3 id="set-format-schema!">
+                            set-format-schema!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), JSON] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>format-schema</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-max-tokens">
+                        <h3 id="set-max-tokens">
+                            set-max-tokens
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, Int] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>max-tokens</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-max-tokens!">
+                        <h3 id="set-max-tokens!">
+                            set-max-tokens!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), Int] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>max-tokens</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-messages">
+                        <h3 id="set-messages">
+                            set-messages
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Array Message)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>messages</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-messages!">
+                        <h3 id="set-messages!">
+                            set-messages!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), (Array Message)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>messages</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-model">
+                        <h3 id="set-model">
+                            set-model
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, String] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>model</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-model!">
+                        <h3 id="set-model!">
+                            set-model!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), String] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>model</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-temperature">
+                        <h3 id="set-temperature">
+                            set-temperature
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, Double] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>temperature</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-temperature!">
+                        <h3 id="set-temperature!">
+                            set-temperature!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), Double] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>temperature</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-tools">
+                        <h3 id="set-tools">
+                            set-tools
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Array ToolDef)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>tools</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-tools!">
+                        <h3 id="set-tools!">
+                            set-tools!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), (Array ToolDef)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>tools</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str">
+                        <h3 id="str">
+                            str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>LLMRequest</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#temperature">
+                        <h3 id="temperature">
+                            temperature
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref Double a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>temperature</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#tools">
+                        <h3 id="tools">
+                            tools
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref (Array ToolDef) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>tools</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-format-mode">
+                        <h3 id="update-format-mode">
+                            update-format-mode
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [Int] Int a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>format-mode</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-format-schema">
+                        <h3 id="update-format-schema">
+                            update-format-schema
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [JSON] JSON a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>format-schema</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-max-tokens">
+                        <h3 id="update-max-tokens">
+                            update-max-tokens
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [Int] Int a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>max-tokens</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-messages">
+                        <h3 id="update-messages">
+                            update-messages
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [(Array Message)] (Array Message) a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>messages</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-model">
+                        <h3 id="update-model">
+                            update-model
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [String] String a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>model</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-temperature">
+                        <h3 id="update-temperature">
+                            update-temperature
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [Double] Double a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>temperature</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-tools">
+                        <h3 id="update-tools">
+                            update-tools
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [(Array ToolDef)] (Array ToolDef) a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>tools</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

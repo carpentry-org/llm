@@ -1,0 +1,559 @@
+(load "Test.carp")
+(load "../llm.carp")
+
+(use Test)
+
+; ===========================================================================
+; JSON serialization tests (no network, no API keys needed)
+; ===========================================================================
+
+(deftest test
+
+  ; =========================================================================
+  ; Message construction
+  ; =========================================================================
+
+  (assert-equal test
+    "user"
+    &(Role.str (Message.role &(Message.user "hi")))
+    "Message.user sets role to user"
+  )
+
+  (assert-equal test
+    "hi"
+    (Message.content &(Message.user "hi"))
+    "Message.user preserves content"
+  )
+
+  (assert-equal test
+    "system"
+    &(Role.str (Message.role &(Message.system "be helpful")))
+    "Message.system sets role to system"
+  )
+
+  ; =========================================================================
+  ; Message to-json
+  ; =========================================================================
+
+  (assert-true test
+    (let [j (Message.to-json &(Message.user "hello"))]
+      (and (match (JSON.get &j "role")
+             (Maybe.Just r) (= &(Maybe.from (JSON.as-str &r) @"") "user")
+             _ false)
+           (match (JSON.get &j "content")
+             (Maybe.Just c) (= &(Maybe.from (JSON.as-str &c) @"") "hello")
+             _ false)))
+    "Message.to-json produces correct JSON object"
+  )
+
+  ; =========================================================================
+  ; OpenAI request serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and (= &(llm-json-str &j &[@"model"]) "gpt-4")
+               (match (JSON.get &j "messages")
+                 (Maybe.Just arr)
+                   (match (JSON.nth &arr 0)
+                     (Maybe.Just msg) (= &(llm-json-str &msg &[@"role"]) "user")
+                     _ false)
+                 _ false))
+        _ false))
+    "OpenAI.build-request produces valid JSON with model and messages"
+  )
+
+  ; =========================================================================
+  ; OpenAI response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"choices\":[{\"message\":{\"content\":\"hi there\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3}}"]
+      (match (OpenAI.parse-response body)
+        (Result.Success r)
+          (and (= (LLMResponse.content &r) "hi there")
+               (and (= (LLMResponse.stop-reason &r) "stop")
+                    (and (= @(LLMResponse.input-tokens &r) 5)
+                         (= @(LLMResponse.output-tokens &r) 3))))
+        _ false))
+    "OpenAI.parse-response extracts content, stop reason, and token counts"
+  )
+
+  ; =========================================================================
+  ; Anthropic request serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request "claude-sonnet-4-20250514"
+               [(Message.system "be nice") (Message.user "hi")]
+               200 0.7)
+          body (Anthropic.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and (= &(llm-json-str &j &[@"model"]) "claude-sonnet-4-20250514")
+               (and (= &(llm-json-str &j &[@"system"]) "be nice")
+                    (match (JSON.get &j "messages")
+                      (Maybe.Just arr)
+                        (match (JSON.nth &arr 0)
+                          (Maybe.Just msg) (= &(llm-json-str &msg &[@"role"]) "user")
+                          _ false)
+                      _ false)))
+        _ false))
+    "Anthropic.build-request separates system message and filters it from messages"
+  )
+
+  ; =========================================================================
+  ; Anthropic response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"content\":[{\"type\":\"text\",\"text\":\"hello!\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}"]
+      (match (Anthropic.parse-response body)
+        (Result.Success r)
+          (and (= (LLMResponse.content &r) "hello!")
+               (= (LLMResponse.stop-reason &r) "end_turn"))
+        _ false))
+    "Anthropic.parse-response extracts text content block"
+  )
+
+  ; =========================================================================
+  ; Ollama request serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request "llama3" [(Message.user "hey")] 128 0.8)
+          body (Ollama.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and (= &(llm-json-str &j &[@"model"]) "llama3")
+               (match (JSON.get &j "stream")
+                 (Maybe.Just s) (not (Maybe.from (JSON.as-bool &s) true))
+                 _ false))
+        _ false))
+    "Ollama.build-request sets model and stream=false"
+  )
+
+  ; =========================================================================
+  ; Ollama response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"message\":{\"role\":\"assistant\",\"content\":\"yo\"},\"done_reason\":\"stop\",\"prompt_eval_count\":4,\"eval_count\":1}"]
+      (match (Ollama.parse-response body)
+        (Result.Success r)
+          (and (= (LLMResponse.content &r) "yo")
+               (= @(LLMResponse.output-tokens &r) 1))
+        _ false))
+    "Ollama.parse-response extracts message content and eval count"
+  )
+
+  ; =========================================================================
+  ; Gemini request serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request "gemini-pro" [(Message.user "hi")] 100 0.5)
+          body (Gemini.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "contents")
+            (Maybe.Just arr) (JSON.arr? &arr)
+            _ false)
+        _ false))
+    "Gemini.build-request produces contents array"
+  )
+
+  ; =========================================================================
+  ; Gemini response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hey\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":1}}"]
+      (match (Gemini.parse-response body)
+        (Result.Success r)
+          (and (= (LLMResponse.content &r) "hey")
+               (= (LLMResponse.stop-reason &r) "STOP"))
+        _ false))
+    "Gemini.parse-response extracts candidate text and finish reason"
+  )
+
+  ; =========================================================================
+  ; Provider config constructors
+  ; =========================================================================
+
+  (assert-equal test
+    "anthropic"
+    (ProviderConfig.name &(LLM.anthropic "sk-test"))
+    "LLM.anthropic sets provider name"
+  )
+
+  (assert-equal test
+    "ollama"
+    (ProviderConfig.name &(LLM.ollama "http://localhost:11434"))
+    "LLM.ollama sets provider name"
+  )
+
+  (assert-equal test
+    "http://localhost:11434"
+    (ProviderConfig.base-url &(LLM.ollama "http://localhost:11434"))
+    "LLM.ollama preserves base URL"
+  )
+
+  ; =========================================================================
+  ; Unknown provider error
+  ; =========================================================================
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"bogus" @"http://x" @"" @"")
+          req (LLM.chat-request "m" [(Message.user "hi")] 10 0.5)]
+      (match (LLM.chat &config &req)
+        (Result.Error err)
+          (match err
+            (LLMError.Transport _) true
+            _ false)
+        _ false))
+    "LLM.chat returns Transport error for unknown provider"
+  )
+
+  ; =========================================================================
+  ; Structured error types
+  ; =========================================================================
+
+  (assert-true test
+    (let [err (LLMError.Transport @"connection refused")]
+      (= &(LLMError.str &err) "connection refused"))
+    "LLMError.Transport str shows message"
+  )
+
+  (assert-true test
+    (let [err (LLMError.Api 401 @"authentication_error" @"invalid api key")]
+      (String.contains-string? &(LLMError.str &err) "401"))
+    "LLMError.Api str includes status code"
+  )
+
+  (assert-true test
+    (let [err (LLMError.Api 429 @"rate_limit" @"too many requests")]
+      (String.contains-string? &(LLMError.str &err) "too many requests"))
+    "LLMError.Api str includes message"
+  )
+
+  ; =========================================================================
+  ; Error parsing
+  ; =========================================================================
+
+  (assert-true test
+    (match (the (Result LLMResponse LLMError)
+             (llm-parse-error "openai" 401 "{\"error\":{\"type\":\"auth_error\",\"message\":\"bad key\"}}"))
+      (Result.Error err)
+        (match err
+          (LLMError.Api code typ msg)
+            (and (= code 401) (= &typ "auth_error"))
+          _ false)
+      _ false)
+    "OpenAI error parsing extracts type and code"
+  )
+
+  (assert-true test
+    (match (the (Result LLMResponse LLMError)
+             (llm-parse-error "anthropic" 400 "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"bad param\"}}"))
+      (Result.Error err)
+        (match err
+          (LLMError.Api code typ msg)
+            (and (= code 400) (= &msg "bad param"))
+          _ false)
+      _ false)
+    "Anthropic error parsing extracts message"
+  )
+
+  (assert-true test
+    (match (the (Result LLMResponse LLMError)
+             (llm-parse-error "ollama" 404 "{\"error\":\"model not found\"}"))
+      (Result.Error err)
+        (match err
+          (LLMError.Api code _typ msg)
+            (and (= code 404) (= &msg "model not found"))
+          _ false)
+      _ false)
+    "Ollama error parsing extracts error string"
+  )
+
+  (assert-true test
+    (match (the (Result LLMResponse LLMError)
+             (llm-parse-error "gemini" 403 "{\"error\":{\"code\":403,\"status\":\"PERMISSION_DENIED\",\"message\":\"no access\"}}"))
+      (Result.Error err)
+        (match err
+          (LLMError.Api code typ msg)
+            (and (= code 403) (= &typ "PERMISSION_DENIED"))
+          _ false)
+      _ false)
+    "Gemini error parsing extracts status and code"
+  )
+
+  ; =========================================================================
+  ; Tool use types
+  ; =========================================================================
+
+  (assert-true test
+    (let [td (ToolDef.init @"get_weather" @"Get weather" (JSON.obj [(JSON.entry @"type" (JSON.Str @"object"))]))
+          j (llm-tooldef-to-openai-json &td)]
+      (and (= &(llm-json-str &j &[@"type"]) "function")
+           (= &(llm-json-str &j &[@"function" @"name"]) "get_weather")))
+    "ToolDef serializes to OpenAI function format"
+  )
+
+  (assert-equal test
+    "tc1"
+    (ToolCall.id &(ToolCall.init @"tc1" @"func" @"{}"))
+    "ToolCall preserves id"
+  )
+
+  (assert-equal test
+    "tool"
+    &(Role.str (Message.role &(Message.tool-result "tc1" "result")))
+    "Message.tool-result has Tool role"
+  )
+
+  (assert-equal test
+    "tc1"
+    (Message.tool-call-id &(Message.tool-result "tc1" "result"))
+    "Message.tool-result preserves tool-call-id"
+  )
+
+  ; =========================================================================
+  ; Tool calls in OpenAI response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"choices\":[{\"message\":{\"content\":\"\",\"tool_calls\":[{\"id\":\"tc1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}"]
+      (match (OpenAI.parse-response body)
+        (Result.Success r)
+          (and (= (Array.length (LLMResponse.tool-calls &r)) 1)
+               (= (ToolCall.name (Array.unsafe-nth (LLMResponse.tool-calls &r) 0)) "get_weather"))
+        _ false))
+    "OpenAI parse-response extracts tool calls"
+  )
+
+  ; =========================================================================
+  ; Tool calls in Ollama response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":5,\"eval_count\":3}"]
+      (match (Ollama.parse-response body)
+        (Result.Success r)
+          (and (= (Array.length (LLMResponse.tool-calls &r)) 1)
+               (= (ToolCall.name (Array.unsafe-nth (LLMResponse.tool-calls &r) 0)) "get_weather"))
+        _ false))
+    "Ollama parse-response extracts tool calls"
+  )
+
+  ; =========================================================================
+  ; Message.from-response preserves tool calls
+  ; =========================================================================
+
+  (assert-true test
+    (let [r (LLMResponse.init @"" @"tool_calls" 5 3
+              [(ToolCall.init @"tc1" @"func" @"{}")])]
+      (= (Array.length (Message.tool-calls &(Message.from-response &r))) 1))
+    "Message.from-response preserves tool calls for conversation history"
+  )
+
+  ; =========================================================================
+  ; Request with tools includes tools array
+  ; =========================================================================
+
+  (assert-true test
+    (let [tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+          req (LLM.chat-request-with-tools "gpt-4" [(Message.user "hi")] 100 0.5 tools)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "tools")
+            (Maybe.Just arr) (JSON.arr? &arr)
+            _ false)
+        _ false))
+    "OpenAI build-request includes tools when provided"
+  )
+
+  (assert-true test
+    (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "tools")
+            (Maybe.Just _) false
+            (Maybe.Nothing) true)
+        _ false))
+    "OpenAI build-request omits tools when empty"
+  )
+
+  ; =========================================================================
+  ; Structured output: OpenAI
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "response_format")
+            (Maybe.Just _) false
+            (Maybe.Nothing) true)
+        _ false))
+    "OpenAI build-request omits response_format for Text"
+  )
+
+  (assert-true test
+    (let [req (LLM.chat-request-json "gpt-4" [(Message.user "hi")] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (= &(llm-json-str &j &[@"response_format" @"type"]) "json_object")
+        _ false))
+    "OpenAI build-request sets response_format json_object for Json"
+  )
+
+  ; =========================================================================
+  ; Structured output: Ollama
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request-json "llama3" [(Message.user "hi")] 100 0.5)
+          body (Ollama.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (= &(llm-json-str &j &[@"format"]) "json")
+        _ false))
+    "Ollama build-request sets format=json for Json"
+  )
+
+  (assert-true test
+    (let [req (LLM.chat-request "llama3" [(Message.user "hi")] 100 0.5)
+          body (Ollama.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "format")
+            (Maybe.Just _) false
+            (Maybe.Nothing) true)
+        _ false))
+    "Ollama build-request omits format for Text"
+  )
+
+  ; =========================================================================
+  ; Structured output: Anthropic (system prompt fallback)
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request-json "claude-sonnet-4-20250514" [(Message.user "hi")] 100 0.5)
+          body (Anthropic.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (String.contains-string? &(llm-json-str &j &[@"system"]) "JSON")
+        _ false))
+    "Anthropic build-request adds JSON instruction to system prompt for Json"
+  )
+
+  (assert-true test
+    (let [req (LLM.chat-request-json "claude-sonnet-4-20250514"
+                [(Message.system "be helpful") (Message.user "hi")]
+                100 0.5)
+          body (Anthropic.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (let [sys (llm-json-str &j &[@"system"])]
+            (and (String.contains-string? &sys "be helpful")
+                 (String.contains-string? &sys "JSON")))
+        _ false))
+    "Anthropic combines existing system msg with JSON instruction"
+  )
+
+  ; =========================================================================
+  ; Structured output: Gemini
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request-json "gemini-pro" [(Message.user "hi")] 100 0.5)
+          body (Gemini.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (= &(llm-json-str &j &[@"generationConfig" @"responseMimeType"]) "application/json")
+        _ false))
+    "Gemini build-request sets responseMimeType for Json"
+  )
+
+  ; =========================================================================
+  ; JSON schema mode
+  ; =========================================================================
+
+  (assert-true test
+    (let [schema (JSON.obj [(JSON.entry @"type" (JSON.Str @"object"))
+                            (JSON.entry @"properties"
+                              (JSON.obj [(JSON.entry @"name" (JSON.obj [(JSON.entry @"type" (JSON.Str @"string"))]))]))])
+          req (LLM.chat-request-with-schema "gpt-4" [(Message.user "hi")] 100 0.5 schema)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (= &(llm-json-str &j &[@"response_format" @"type"]) "json_schema")
+        _ false))
+    "OpenAI build-request emits json_schema response_format"
+  )
+
+  (assert-true test
+    (let [schema (JSON.obj [(JSON.entry @"type" (JSON.Str @"object"))])
+          req (LLM.chat-request-with-schema "llama3" [(Message.user "hi")] 100 0.5 schema)
+          body (Ollama.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "format")
+            (Maybe.Just f) (JSON.obj? &f)
+            _ false)
+        _ false))
+    "Ollama build-request passes raw schema as format"
+  )
+
+  (assert-true test
+    (let [schema (JSON.obj [(JSON.entry @"type" (JSON.Str @"object"))])
+          req (LLM.chat-request-with-schema "gemini-pro" [(Message.user "hi")] 100 0.5 schema)
+          body (Gemini.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get-in &j &[@"generationConfig" @"responseSchema"])
+            (Maybe.Just _) true
+            _ false)
+        _ false))
+    "Gemini build-request includes responseSchema"
+  )
+
+  (assert-true test
+    (let [schema (JSON.obj [(JSON.entry @"type" (JSON.Str @"object"))])
+          req (LLM.chat-request-with-schema "claude-sonnet-4-20250514"
+                [(Message.user "hi")] 100 0.5 schema)
+          body (Anthropic.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (let [sys (llm-json-str &j &[@"system"])]
+            (and (String.contains-string? &sys "JSON")
+                 (String.contains-string? &sys "schema")))
+        _ false))
+    "Anthropic schema mode adds schema to system prompt"
+  )
+
+  ; =========================================================================
+  ; Transport error on connection failure
+  ; =========================================================================
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
+          req (LLM.chat-request "m" [(Message.user "hi")] 10 0.5)]
+      (match (LLM.chat &config &req)
+        (Result.Error err)
+          (match err
+            (LLMError.Transport _) true
+            _ false)
+        _ false))
+    "LLM.chat returns Transport error on connection failure"
+  )
+)

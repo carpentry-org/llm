@@ -1,0 +1,24 @@
+(load "../llm.carp")
+
+; Chat with a local Ollama model.
+;
+; Prerequisites: ollama running locally with a model pulled
+;   ollama pull llama3
+;
+; Usage: carp -x examples/ollama.carp
+
+(defn main []
+  (let [config (LLM.ollama "http://localhost:11434")
+        req (LLM.chat-request "llama3"
+              [(Message.system "You are a helpful assistant. Be concise.")
+               (Message.user "What is the capital of France?")]
+              256 0.7)]
+    (match (LLM.chat &config &req)
+      (Result.Success r)
+        (do
+          (println* (LLMResponse.content &r))
+          (IO.println &(String.concat &[@"(" @&(Int.str @(LLMResponse.input-tokens &r))
+                                        @" in, "
+                                        @&(Int.str @(LLMResponse.output-tokens &r))
+                                        @" out)"])))
+      (Result.Error e) (IO.errorln &e))))

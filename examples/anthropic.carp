@@ -1,0 +1,19 @@
+(load "../llm.carp")
+
+; Chat with the Anthropic API.
+;
+; Set the ANTHROPIC_API_KEY environment variable before running.
+;
+; Usage: ANTHROPIC_API_KEY=sk-ant-... carp -x examples/anthropic.carp
+
+(defn main []
+  (match (IO.getenv "ANTHROPIC_API_KEY")
+    (Maybe.Nothing) (IO.errorln "set ANTHROPIC_API_KEY")
+    (Maybe.Just key)
+      (let [config (LLM.anthropic &key)
+            req (LLM.chat-request "claude-haiku-4-5-20251001"
+                  [(Message.user "Reply with exactly: OK")]
+                  16 0.0)]
+        (match (LLM.chat &config &req)
+          (Result.Success r) (println* (LLMResponse.content &r))
+          (Result.Error e) (IO.errorln &(LLMError.str &e))))))

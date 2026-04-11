@@ -1,0 +1,29 @@
+(load "../llm.carp")
+
+(defn make-schema []
+  (JSON.obj [(JSON.entry @"type" (JSON.Str @"object"))
+             (JSON.entry @"properties"
+               (JSON.obj [(JSON.entry @"city"
+                 (JSON.obj [(JSON.entry @"type" (JSON.Str @"string"))]))]))
+             (JSON.entry @"required" (JSON.Arr [(Box.init (JSON.Str @"city"))]))]))
+
+(defn main []
+  (match (IO.getenv "GEMINI_API_KEY")
+    (Maybe.Nothing) (IO.errorln "set GEMINI_API_KEY")
+    (Maybe.Just key)
+      (let [config (LLM.gemini &key)
+            tools [(ToolDef.init @"get_weather" @"Get weather for a city" (make-schema))]
+            req (LLM.chat-request-with-tools "gemini-2.5-flash-lite"
+                  [(Message.user "What is the weather in Paris?")]
+                  256 0.0 tools)]
+        (match (LLM.chat &config &req)
+          (Result.Success r)
+            (do
+              (IO.println &(String.concat &[@"stop: " @(LLMResponse.stop-reason &r)]))
+              (IO.println &(String.concat &[@"calls: " @&(Int.str (Array.length (LLMResponse.tool-calls &r)))]))
+              (when (> (Array.length (LLMResponse.tool-calls &r)) 0)
+                (let [tc (Array.unsafe-nth (LLMResponse.tool-calls &r) 0)]
+                  (do
+                    (IO.println &(String.concat &[@"  name: " @(ToolCall.name tc)]))
+                    (IO.println &(String.concat &[@"  args: " @(ToolCall.arguments tc)]))))))
+          (Result.Error e) (IO.errorln &(LLMError.str &e))))))

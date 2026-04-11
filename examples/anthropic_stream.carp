@@ -1,0 +1,20 @@
+(load "../llm.carp")
+
+(defn main []
+  (match (IO.getenv "ANTHROPIC_API_KEY")
+    (Maybe.Nothing) (IO.errorln "set ANTHROPIC_API_KEY")
+    (Maybe.Just key)
+      (let [config (LLM.anthropic &key)
+            req (LLM.chat-request "claude-haiku-4-5-20251001"
+                  [(Message.user "Say hi in 3 words.")]
+                  32 0.0)]
+        (match (LLM.chat-stream &config &req)
+          (Result.Success stream)
+            (do
+              (while-do true
+                (match (LlmStream.poll &stream)
+                  (Maybe.Nothing) (break)
+                  (Maybe.Just tok) (IO.print &tok)))
+              (IO.println "")
+              (LlmStream.close stream))
+          (Result.Error e) (IO.errorln &(LLMError.str &e))))))

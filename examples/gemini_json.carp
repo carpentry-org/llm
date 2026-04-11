@@ -1,0 +1,24 @@
+(load "../llm.carp")
+
+(defn main []
+  (match (IO.getenv "GEMINI_API_KEY")
+    (Maybe.Nothing) (IO.errorln "set GEMINI_API_KEY")
+    (Maybe.Just key)
+      (let [config (LLM.gemini &key)
+            schema (JSON.obj [(JSON.entry @"type" (JSON.Str @"object"))
+                              (JSON.entry @"properties"
+                                (JSON.obj [(JSON.entry @"status" (JSON.obj [(JSON.entry @"type" (JSON.Str @"string"))]))
+                                           (JSON.entry @"answer" (JSON.obj [(JSON.entry @"type" (JSON.Str @"integer"))]))]))
+                              (JSON.entry @"required" (JSON.Arr [(Box.init (JSON.Str @"status")) (Box.init (JSON.Str @"answer"))]))])
+            req (LLM.chat-request-with-schema "gemini-2.5-flash-lite"
+                  [(Message.user "Give me status ok and answer 42")]
+                  64 0.0 schema)]
+        (match (LLM.chat &config &req)
+          (Result.Success r)
+            (do
+              (IO.println "raw:")
+              (println* (LLMResponse.content &r))
+              (match (JSON.parse (LLMResponse.content &r))
+                (Result.Success _) (IO.println "valid JSON")
+                (Result.Error _) (IO.println "NOT valid JSON")))
+          (Result.Error e) (IO.errorln &(LLMError.str &e))))))

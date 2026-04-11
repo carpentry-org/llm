@@ -1,0 +1,19 @@
+(load "../llm.carp")
+
+; Chat with the OpenAI API.
+;
+; Set the OPENAI_API_KEY environment variable before running.
+;
+; Usage: OPENAI_API_KEY=sk-... carp -x examples/openai.carp
+
+(defn main []
+  (match (IO.getenv "OPENAI_API_KEY")
+    (Maybe.Nothing) (IO.errorln "set OPENAI_API_KEY")
+    (Maybe.Just key)
+      (let [config (LLM.openai &key)
+            req (LLM.chat-request "gpt-4o-mini"
+                  [(Message.user "What is the capital of France?")]
+                  256 0.7)]
+        (match (LLM.chat &config &req)
+          (Result.Success r) (println* (LLMResponse.content &r))
+          (Result.Error e) (IO.errorln &e)))))

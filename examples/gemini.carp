@@ -1,0 +1,13 @@
+(load "../llm.carp")
+
+(defn main []
+  (match (IO.getenv "GEMINI_API_KEY")
+    (Maybe.Nothing) (IO.errorln "set GEMINI_API_KEY")
+    (Maybe.Just key)
+      (let [config (LLM.gemini &key)
+            req (LLM.chat-request "gemini-2.5-flash"
+                  [(Message.user "Reply with exactly: OK")]
+                  16 0.0)]
+        (match (LLM.chat &config &req)
+          (Result.Success r) (println* (LLMResponse.content &r))
+          (Result.Error e) (IO.errorln &(LLMError.str &e))))))

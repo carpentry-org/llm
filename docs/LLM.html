@@ -1,0 +1,322 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/llm">
+                    <img src="">
+                </a>
+                <div class="title">
+                    llm
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="LLM.html">
+                                LLM
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Message.html">
+                                Message
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Role.html">
+                                Role
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LlmStream.html">
+                                LlmStream
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMRequest.html">
+                                LLMRequest
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMResponse.html">
+                                LLMResponse
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMError.html">
+                                LLMError
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ProviderConfig.html">
+                                ProviderConfig
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolDef.html">
+                                ToolDef
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolCall.html">
+                                ToolCall
+                            </a>
+                        </li>
+                        <li>
+                            <a href="OpenAI.html">
+                                OpenAI
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Anthropic.html">
+                                Anthropic
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Ollama.html">
+                                Ollama
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Gemini.html">
+                                Gemini
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    LLM
+                </h1>
+                <div class="module-description">
+                    <p>is a multi-provider LLM client supporting Anthropic, OpenAI, Ollama,
+and Gemini.</p>
+<h2>Quick start</h2>
+<pre><code>(let [config (LLM.ollama &quot;http://localhost:11434&quot;)
+      req (LLM.chat-request &quot;llama3&quot; [(Message.user &quot;hello&quot;)] 256 0.7)]
+  (match (LLM.chat &amp;config &amp;req)
+    (Result.Success r) (println* (LLMResponse.content &amp;r))
+    (Result.Error e) (IO.errorln &amp;e)))
+</code></pre>
+
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#anthropic">
+                        <h3 id="anthropic">
+                            anthropic
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] ProviderConfig)
+                    </p>
+                    <pre class="args">
+                        (anthropic api-key)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a provider config for the Anthropic API.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat">
+                        <h3 id="chat">
+                            chat
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), (Ref LLMRequest b)] (Result LLMResponse LLMError))
+                    </p>
+                    <pre class="args">
+                        (chat config req)
+                    </pre>
+                    <p class="doc">
+                        <p>sends a chat request to the configured provider.
+Returns <code>(Result LLMResponse LLMError)</code>. On HTTP errors (4xx/5xx), returns a
+structured <code>LLMError.Api</code> with status code, error type, and message parsed from
+the provider's error response. On transport failures, returns <code>LLMError.Transport</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat-request">
+                        <h3 id="chat-request">
+                            chat-request
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Array Message), Int, Double] LLMRequest)
+                    </p>
+                    <pre class="args">
+                        (chat-request model messages max-tokens temperature)
+                    </pre>
+                    <p class="doc">
+                        <p>creates an LLM request without tools.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat-request-json">
+                        <h3 id="chat-request-json">
+                            chat-request-json
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Array Message), Int, Double] LLMRequest)
+                    </p>
+                    <pre class="args">
+                        (chat-request-json model messages max-tokens temperature)
+                    </pre>
+                    <p class="doc">
+                        <p>creates an LLM request that asks for a JSON response.</p>
+<p>Note: Anthropic has no native JSON mode, so this falls back to a system prompt
+instruction (best-effort, not guaranteed). All other providers use their native
+JSON mode.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat-request-with-schema">
+                        <h3 id="chat-request-with-schema">
+                            chat-request-with-schema
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Array Message), Int, Double, JSON] LLMRequest)
+                    </p>
+                    <pre class="args">
+                        (chat-request-with-schema model messages max-tokens temperature schema)
+                    </pre>
+                    <p class="doc">
+                        <p>creates an LLM request constrained to a JSON
+schema. The schema is a JSON value (use the <code>JSON</code> constructors).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat-request-with-tools">
+                        <h3 id="chat-request-with-tools">
+                            chat-request-with-tools
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Array Message), Int, Double, (Array ToolDef)] LLMRequest)
+                    </p>
+                    <pre class="args">
+                        (chat-request-with-tools model messages max-tokens temperature tools)
+                    </pre>
+                    <p class="doc">
+                        <p>creates an LLM request with tool definitions.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat-stream">
+                        <h3 id="chat-stream">
+                            chat-stream
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), (Ref LLMRequest b)] (Result LlmStream LLMError))
+                    </p>
+                    <pre class="args">
+                        (chat-stream config req)
+                    </pre>
+                    <p class="doc">
+                        <p>sends a streaming chat request and returns an <code>LlmStream</code>.
+Poll the stream for tokens. Returns <code>(Result LlmStream LLMError)</code>. Checks
+the HTTP status code before returning the stream.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#gemini">
+                        <h3 id="gemini">
+                            gemini
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] ProviderConfig)
+                    </p>
+                    <pre class="args">
+                        (gemini api-key)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a provider config for the Google Gemini API.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ollama">
+                        <h3 id="ollama">
+                            ollama
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] ProviderConfig)
+                    </p>
+                    <pre class="args">
+                        (ollama base-url)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a provider config for Ollama. Takes the base URL
+(e.g. <code>&quot;http://localhost:11434&quot;</code>).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#openai">
+                        <h3 id="openai">
+                            openai
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] ProviderConfig)
+                    </p>
+                    <pre class="args">
+                        (openai api-key)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a provider config for the OpenAI API.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

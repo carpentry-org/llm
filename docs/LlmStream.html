@@ -1,0 +1,497 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/llm">
+                    <img src="">
+                </a>
+                <div class="title">
+                    llm
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="LLM.html">
+                                LLM
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Message.html">
+                                Message
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Role.html">
+                                Role
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LlmStream.html">
+                                LlmStream
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMRequest.html">
+                                LLMRequest
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMResponse.html">
+                                LLMResponse
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMError.html">
+                                LLMError
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ProviderConfig.html">
+                                ProviderConfig
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolDef.html">
+                                ToolDef
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolCall.html">
+                                ToolCall
+                            </a>
+                        </li>
+                        <li>
+                            <a href="OpenAI.html">
+                                OpenAI
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Anthropic.html">
+                                Anthropic
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Ollama.html">
+                                Ollama
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Gemini.html">
+                                Gemini
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    LlmStream
+                </h1>
+                <div class="module-description">
+                    <p>is a pull-based stream of tokens from an LLM response.
+Wraps a <code>ResponseStream</code> and parses provider-specific streaming formats.
+Implements the <code>poll</code> interface.</p>
+<pre><code>(match (LLM.chat-stream &amp;config &amp;req)
+  (Result.Success stream)
+    (do
+      (while-do true
+        (match (LlmStream.poll &amp;stream)
+          (Maybe.Nothing) (break)
+          (Maybe.Just tok) (IO.print &amp;tok)))
+      (IO.println &quot;&quot;)
+      (LlmStream.close stream))
+  (Result.Error e) (IO.errorln &amp;e))
+</code></pre>
+
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#close">
+                        <h3 id="close">
+                            close
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream] ())
+                    </p>
+                    <pre class="args">
+                        (close s)
+                    </pre>
+                    <p class="doc">
+                        <p>closes the underlying connection.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#copy">
+                        <h3 id="copy">
+                            copy
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>copies a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#delete">
+                        <h3 id="delete">
+                            delete
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>deletes a <code>LlmStream</code>. Should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#init">
+                        <h3 id="init">
+                            init
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ResponseStream, String, String] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#linebuf">
+                        <h3 id="linebuf">
+                            linebuf
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Ref String a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>linebuf</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#poll">
+                        <h3 id="poll">
+                            poll
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Maybe String))
+                    </p>
+                    <pre class="args">
+                        (poll s)
+                    </pre>
+                    <p class="doc">
+                        <p>returns the next token from the LLM stream, or <code>Nothing</code> when complete.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#prn">
+                        <h3 id="prn">
+                            prn
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>LlmStream</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#provider">
+                        <h3 id="provider">
+                            provider
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Ref String a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>provider</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#rs">
+                        <h3 id="rs">
+                            rs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Ref ResponseStream a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>rs</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-linebuf">
+                        <h3 id="set-linebuf">
+                            set-linebuf
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, String] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>linebuf</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-linebuf!">
+                        <h3 id="set-linebuf!">
+                            set-linebuf!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a), String] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>linebuf</code> property of a <code>LlmStream</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-provider">
+                        <h3 id="set-provider">
+                            set-provider
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, String] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>provider</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-provider!">
+                        <h3 id="set-provider!">
+                            set-provider!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a), String] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>provider</code> property of a <code>LlmStream</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-rs">
+                        <h3 id="set-rs">
+                            set-rs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, ResponseStream] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>rs</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-rs!">
+                        <h3 id="set-rs!">
+                            set-rs!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a), ResponseStream] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>rs</code> property of a <code>LlmStream</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str">
+                        <h3 id="str">
+                            str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>LlmStream</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-linebuf">
+                        <h3 id="update-linebuf">
+                            update-linebuf
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Ref (Fn [String] String a) b)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>linebuf</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-provider">
+                        <h3 id="update-provider">
+                            update-provider
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Ref (Fn [String] String a) b)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>provider</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-rs">
+                        <h3 id="update-rs">
+                            update-rs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Ref (Fn [ResponseStream] ResponseStream a) b)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>rs</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

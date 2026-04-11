@@ -1,0 +1,223 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/llm">
+                    <img src="">
+                </a>
+                <div class="title">
+                    llm
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="LLM.html">
+                                LLM
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Message.html">
+                                Message
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Role.html">
+                                Role
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LlmStream.html">
+                                LlmStream
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMRequest.html">
+                                LLMRequest
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMResponse.html">
+                                LLMResponse
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMError.html">
+                                LLMError
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ProviderConfig.html">
+                                ProviderConfig
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolDef.html">
+                                ToolDef
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolCall.html">
+                                ToolCall
+                            </a>
+                        </li>
+                        <li>
+                            <a href="OpenAI.html">
+                                OpenAI
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Anthropic.html">
+                                Anthropic
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Ollama.html">
+                                Ollama
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Gemini.html">
+                                Gemini
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    Anthropic
+                </h1>
+                <div class="module-description">
+                    
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#build-request">
+                        <h3 id="build-request">
+                            build-request
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] String)
+                    </p>
+                    <pre class="args">
+                        (build-request req)
+                    </pre>
+                    <p class="doc">
+                        <p>builds the JSON request body for the Anthropic messages API.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#build-stream-request">
+                        <h3 id="build-stream-request">
+                            build-stream-request
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] String)
+                    </p>
+                    <pre class="args">
+                        (build-stream-request req)
+                    </pre>
+                    <p class="doc">
+                        <p>builds a streaming Anthropic messages request.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#endpoint">
+                        <h3 id="endpoint">
+                            endpoint
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [a] String)
+                    </p>
+                    <pre class="args">
+                        (endpoint _config)
+                    </pre>
+                    <p class="doc">
+                        <p>returns the messages API endpoint path.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#headers">
+                        <h3 id="headers">
+                            headers
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), Int] (Map String (Array String)))
+                    </p>
+                    <pre class="args">
+                        (headers config body-len)
+                    </pre>
+                    <p class="doc">
+                        <p>returns the HTTP headers for an Anthropic request.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-delta">
+                        <h3 id="parse-delta">
+                            parse-delta
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Maybe String))
+                    </p>
+                    <pre class="args">
+                        (parse-delta line)
+                    </pre>
+                    <p class="doc">
+                        <p>extracts text from an Anthropic streaming SSE data line.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-response">
+                        <h3 id="parse-response">
+                            parse-response
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result LLMResponse String))
+                    </p>
+                    <pre class="args">
+                        (parse-response body)
+                    </pre>
+                    <p class="doc">
+                        <p>parses an Anthropic messages API response.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

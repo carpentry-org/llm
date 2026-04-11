@@ -1,0 +1,20 @@
+(load "../llm.carp")
+
+(defn main []
+  (match (IO.getenv "ANTHROPIC_API_KEY")
+    (Maybe.Nothing) (IO.errorln "set ANTHROPIC_API_KEY")
+    (Maybe.Just key)
+      (let [config (LLM.anthropic &key)
+            req (LLM.chat-request-json "claude-haiku-4-5-20251001"
+                  [(Message.user "Reply with a JSON object: {\"status\": \"ok\", \"answer\": 42}")]
+                  64 0.0)]
+        (match (LLM.chat &config &req)
+          (Result.Success r)
+            (do
+              (IO.println "raw:")
+              (println* (LLMResponse.content &r))
+              (IO.println "parse:")
+              (match (JSON.parse (LLMResponse.content &r))
+                (Result.Success _) (IO.println "valid JSON")
+                (Result.Error _) (IO.println "NOT valid JSON")))
+          (Result.Error e) (IO.errorln &(LLMError.str &e))))))

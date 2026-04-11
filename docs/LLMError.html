@@ -1,0 +1,248 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/llm">
+                    <img src="">
+                </a>
+                <div class="title">
+                    llm
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="LLM.html">
+                                LLM
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Message.html">
+                                Message
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Role.html">
+                                Role
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LlmStream.html">
+                                LlmStream
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMRequest.html">
+                                LLMRequest
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMResponse.html">
+                                LLMResponse
+                            </a>
+                        </li>
+                        <li>
+                            <a href="LLMError.html">
+                                LLMError
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ProviderConfig.html">
+                                ProviderConfig
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolDef.html">
+                                ToolDef
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ToolCall.html">
+                                ToolCall
+                            </a>
+                        </li>
+                        <li>
+                            <a href="OpenAI.html">
+                                OpenAI
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Anthropic.html">
+                                Anthropic
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Ollama.html">
+                                Ollama
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Gemini.html">
+                                Gemini
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    LLMError
+                </h1>
+                <div class="module-description">
+                    <p>represents an error from an LLM operation.</p>
+<ul>
+<li><code>Transport</code>: connection, DNS, or network error</li>
+<li><code>Api</code>: provider returned an error response (HTTP status, error type, message)</li>
+</ul>
+
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Api">
+                        <h3 id="Api">
+                            Api
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [Int, String, String] LLMError)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Api</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Transport">
+                        <h3 id="Transport">
+                            Transport
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [String] LLMError)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Transport</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#copy">
+                        <h3 id="copy">
+                            copy
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMError a)] LLMError)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>copies a <code>LLMError</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#delete">
+                        <h3 id="delete">
+                            delete
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMError] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>deletes a <code>LLMError</code>. This should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#get-tag">
+                        <h3 id="get-tag">
+                            get-tag
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMError a)] Int)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>Gets the tag from a <code>LLMError</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#prn">
+                        <h3 id="prn">
+                            prn
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMError a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>LLMError</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str">
+                        <h3 id="str">
+                            str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMError a)] String)
+                    </p>
+                    <pre class="args">
+                        (str e)
+                    </pre>
+                    <p class="doc">
+                        <p>formats an <code>LLMError</code> as a human-readable string.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
