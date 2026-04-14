@@ -1,4 +1,4 @@
-(load "git@github.com:carpentry-org/http-client@0.1.2")
+(load "git@github.com:carpentry-org/http-client@0.1.3")
 (load "git@github.com:carpentry-org/json@0.2.2")
 
 ; ===========================================================================
@@ -405,7 +405,7 @@ so callers can distinguish them from regular content tokens.")
     (if (String.starts-with? line "data: [DONE]")
       (Maybe.Nothing)
       (if (String.starts-with? line "data: ")
-        (let [json-str (String.suffix line 6)]
+        (let [json-str (String.byte-slice line 6 (String.length line))]
           (match (JSON.parse &json-str)
             (Result.Success j)
               (match (JSON.get &j "choices")
@@ -530,7 +530,7 @@ so callers can distinguish them from regular content tokens.")
   (doc parse-delta "extracts text from an Anthropic streaming SSE data line.")
   (defn parse-delta [line]
     (if (String.starts-with? line "data: ")
-      (let [json-str (String.suffix line 6)]
+      (let [json-str (String.byte-slice line 6 (String.length line))]
         (match (JSON.parse &json-str)
           (Result.Success j)
             (match (JSON.get &j "type")
@@ -743,7 +743,7 @@ The `?alt=sse` parameter enables Server-Sent Events streaming.")
   (doc parse-delta "extracts text from a Gemini streaming SSE data line.")
   (defn parse-delta [line]
     (if (String.starts-with? line "data: ")
-      (let [json-str (String.suffix line 6)]
+      (let [json-str (String.byte-slice line 6 (String.length line))]
         (match (JSON.parse &json-str)
           (Result.Success j)
             (match (JSON.get &j "candidates")
