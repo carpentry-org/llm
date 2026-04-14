@@ -1,5 +1,5 @@
 (load "git@github.com:carpentry-org/http-client@0.1.2")
-(load "git@github.com:carpentry-org/json@0.2.1")
+(load "git@github.com:carpentry-org/json@0.2.2")
 
 ; ===========================================================================
 ; Common types
@@ -590,7 +590,10 @@ string if the path is missing or the value isn't a string.")
   (doc build-stream-request "builds a streaming Ollama chat request.")
   (defn build-stream-request [req] (Ollama.body req true))
 
-  (doc parse-delta "extracts content from an Ollama streaming NDJSON line.")
+  (doc parse-delta "extracts content from an Ollama streaming NDJSON line.
+Falls back to the `thinking` field when `content` is empty (reasoning models).
+Thinking tokens are prefixed with a SOH byte (0x01) so callers can distinguish
+them from regular content tokens.")
   (defn parse-delta [line]
     (match (JSON.parse line)
       (Result.Success j)
@@ -599,9 +602,12 @@ string if the path is missing or the value isn't a string.")
             (if (Maybe.from (JSON.as-bool &d) false)
               (Maybe.Nothing)
               (let [tok (llm-json-str &j &[@"message" @"content"])]
-                (if (= (String.length &tok) 0)
-                  (Maybe.Nothing)
-                  (Maybe.Just tok))))
+                (if (> (String.length &tok) 0)
+                  (Maybe.Just tok)
+                  (let [think (llm-json-str &j &[@"message" @"thinking"])]
+                    (if (> (String.length &think) 0)
+                      (Maybe.Just (String.concat &[@"\x01" think]))
+                      (Maybe.Nothing))))))
           _ (Maybe.Nothing))
       _ (Maybe.Nothing)))
 )
@@ -933,8 +939,8 @@ an `LlmStream`'s line buffer, advancing the buffer. Returns
         pos (String.index-of buf \newline)]
     (if (< pos 0)
       (Maybe.Nothing)
-      (let [line (String.prefix buf pos)
-            rest (String.suffix buf (inc pos))]
+      (let [line (String.byte-slice buf 0 pos)
+            rest (String.byte-slice buf (inc pos) (String.length buf))]
         (do
           (LlmStream.set-linebuf! s rest)
           (Maybe.Just line))))))
