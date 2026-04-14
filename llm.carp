@@ -1,4 +1,4 @@
-(load "git@github.com:carpentry-org/http-client@0.1.1")
+(load "git@github.com:carpentry-org/http-client@0.1.2")
 (load "git@github.com:carpentry-org/json@0.2.0")
 
 ; ===========================================================================
