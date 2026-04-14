@@ -397,7 +397,10 @@ string if the path is missing or the value isn't a string.")
   (doc build-stream-request "builds a streaming OpenAI chat completions request.")
   (defn build-stream-request [req] (OpenAI.body req true))
 
-  (doc parse-delta "extracts the content delta from a streaming SSE data line.")
+  (doc parse-delta "extracts the content delta from a streaming SSE data line.
+Falls back to `reasoning_content` when `content` is empty (reasoning models
+via vLLM and similar). Thinking tokens are prefixed with a SOH byte (0x01)
+so callers can distinguish them from regular content tokens.")
   (defn parse-delta [line]
     (if (String.starts-with? line "data: [DONE]")
       (Maybe.Nothing)
@@ -408,7 +411,14 @@ string if the path is missing or the value isn't a string.")
               (match (JSON.get &j "choices")
                 (Maybe.Just arr)
                   (match (JSON.nth &arr 0)
-                    (Maybe.Just choice) (Maybe.Just (llm-json-str &choice &[@"delta" @"content"]))
+                    (Maybe.Just choice)
+                      (let [tok (llm-json-str &choice &[@"delta" @"content"])]
+                        (if (> (String.length &tok) 0)
+                          (Maybe.Just tok)
+                          (let [think (llm-json-str &choice &[@"delta" @"reasoning"])]
+                            (if (> (String.length &think) 0)
+                              (Maybe.Just (String.concat &[@"\x01" think]))
+                              (Maybe.Nothing)))))
                     _ (Maybe.Nothing))
                 _ (Maybe.Nothing))
             _ (Maybe.Nothing)))
@@ -856,6 +866,12 @@ and Gemini.
 (e.g. `\"http://localhost:11434\"`).")
   (defn ollama [base-url]
     (ProviderConfig.init @"ollama" @base-url @"" @""))
+
+  (doc vllm "creates a provider config for a vLLM server. Uses the OpenAI
+wire format. Takes the base URL (e.g. `\"http://dgx:8000\"`) and an API
+key (pass empty string for none).")
+  (defn vllm [base-url api-key]
+    (ProviderConfig.init @"openai" @base-url @api-key @""))
 
   (doc gemini "creates a provider config for the Google Gemini API.")
   (defn gemini [api-key]
