@@ -193,7 +193,10 @@
                         (parse-delta line)
                     </pre>
                     <p class="doc">
-                        <p>extracts the content delta from a streaming SSE data line.</p>
+                        <p>extracts the content delta from a streaming SSE data line.
+Falls back to <code>reasoning_content</code> when <code>content</code> is empty (reasoning models
+via vLLM and similar). Thinking tokens are prefixed with a SOH byte (0x01)
+so callers can distinguish them from regular content tokens.</p>
 
                     </p>
                 </div>

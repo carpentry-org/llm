@@ -316,6 +316,28 @@ the HTTP status code before returning the stream.</p>
 
                     </p>
                 </div>
+                <div class="binder">
+                    <a class="anchor" href="#vllm">
+                        <h3 id="vllm">
+                            vllm
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b)] ProviderConfig)
+                    </p>
+                    <pre class="args">
+                        (vllm base-url api-key)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a provider config for a vLLM server. Uses the OpenAI
+wire format. Takes the base URL (e.g. <code>&quot;http://dgx:8000&quot;</code>) and an API
+key (pass empty string for none).</p>
+
+                    </p>
+                </div>
             </div>
         </div>
     </body>

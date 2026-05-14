@@ -193,7 +193,10 @@
                         (parse-delta line)
                     </pre>
                     <p class="doc">
-                        <p>extracts content from an Ollama streaming NDJSON line.</p>
+                        <p>extracts content from an Ollama streaming NDJSON line.
+Falls back to the <code>thinking</code> field when <code>content</code> is empty (reasoning models).
+Thinking tokens are prefixed with a SOH byte (0x01) so callers can distinguish
+them from regular content tokens.</p>
 
                     </p>
                 </div>

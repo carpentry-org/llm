@@ -15,7 +15,9 @@ messages.")
 - `name`: the tool name the model uses to invoke it
 - `description`: natural-language description the model sees
 - `parameters`: a JSON Schema describing the tool's arguments")
-(deftype ToolDef [name String description String parameters JSON])
+(deftype ToolDef [name String
+                  description String
+                  parameters JSON])
 
 (doc ToolCall "represents a tool invocation from the model.
 
@@ -23,7 +25,9 @@ messages.")
   Empty for Gemini, which doesn't use call IDs.
 - `name`: the tool name the model is calling
 - `arguments`: the JSON-encoded argument object as a string")
-(deftype ToolCall [id String name String arguments String])
+(deftype ToolCall [id String
+                   name String
+                   arguments String])
 
 (doc Message "a single chat message in a conversation.
 
@@ -34,19 +38,19 @@ messages.")
 
 Use the constructors in the `Message` module instead of `Message.init`
 directly.")
-(deftype Message [
-  role Role
-  content String
-  tool-calls (Array ToolCall)
-  tool-call-id String
-])
+(deftype Message
+  [role Role
+   content String
+   tool-calls (Array ToolCall)
+   tool-call-id String])
 
 ; Response format modes for LLMRequest.format-mode
 (doc format-text "format-mode for plain text responses (no constraint).")
 (def format-text 0)
 (doc format-json "format-mode for responses constrained to any valid JSON.")
 (def format-json 1)
-(doc format-json-schema "format-mode for responses constrained to a JSON schema.")
+(doc format-json-schema
+  "format-mode for responses constrained to a JSON schema.")
 (def format-json-schema 2)
 
 (doc LLMRequest "a chat request to an LLM provider.
@@ -63,15 +67,14 @@ constructing directly.
 - `format-mode`: `format-text`, `format-json`, or `format-json-schema`
 - `format-schema`: JSON schema for structured output (used when mode is
   `format-json-schema`)")
-(deftype LLMRequest [
-  model String
-  messages (Array Message)
-  max-tokens Int
-  temperature Double
-  tools (Array ToolDef)
-  format-mode Int
-  format-schema JSON
-])
+(deftype LLMRequest
+  [model String
+   messages (Array Message)
+   max-tokens Int
+   temperature Double
+   tools (Array ToolDef)
+   format-mode Int
+   format-schema JSON])
 
 (doc LLMResponse "a parsed response from an LLM provider.
 
@@ -81,21 +84,18 @@ constructing directly.
 - `input-tokens`: tokens consumed by the prompt
 - `output-tokens`: tokens generated
 - `tool-calls`: tool calls the model wants to make (empty if none)")
-(deftype LLMResponse [
-  content String
-  stop-reason String
-  input-tokens Int
-  output-tokens Int
-  tool-calls (Array ToolCall)
-])
+(deftype LLMResponse
+  [content String
+   stop-reason String
+   input-tokens Int
+   output-tokens Int
+   tool-calls (Array ToolCall)])
 
 (doc LLMError "represents an error from an LLM operation.
 
 - `Transport`: connection, DNS, or network error
 - `Api`: provider returned an error response (HTTP status, error type, message)")
-(deftype LLMError
-  (Transport [String])
-  (Api [Int String String]))
+(deftype LLMError (Transport [String]) (Api [Int String String]))
 
 (defmodule LLMError
   (doc str "formats an `LLMError` as a human-readable string.")
@@ -104,8 +104,7 @@ constructing directly.
       (LLMError.Transport msg) @msg
       (LLMError.Api code typ msg)
         (String.concat &[@"API error " @&(Int.str @code) @" (" @typ @"): " @msg])))
-  (implements str LLMError.str)
-)
+  (implements str LLMError.str))
 
 (doc ProviderConfig "configuration for an LLM provider.
 
@@ -116,12 +115,11 @@ rather than constructing directly.
 - `base-url`: the API base URL
 - `api-key`: the API key (empty for Ollama)
 - `api-version`: used only by Anthropic (e.g. `\"2023-06-01\"`)")
-(deftype ProviderConfig [
-  name String
-  base-url String
-  api-key String
-  api-version String
-])
+(deftype ProviderConfig
+  [name String
+   base-url String
+   api-key String
+   api-version String])
 
 ; ===========================================================================
 ; JSON helpers
@@ -136,8 +134,7 @@ rather than constructing directly.
       (Role.User) @"user"
       (Role.Assistant) @"assistant"
       (Role.Tool) @"tool"))
-  (implements str Role.str)
-)
+  (implements str Role.str))
 
 (defmodule Message
   (doc user "creates a user message.")
@@ -156,34 +153,51 @@ rather than constructing directly.
   (doc from-response "converts an LLMResponse into an assistant message,
 preserving any tool calls for conversation history.")
   (defn from-response [r]
-    (Message.init (Role.Assistant) @(LLMResponse.content r) @(LLMResponse.tool-calls r) @""))
+    (Message.init
+      (Role.Assistant)
+      @(LLMResponse.content r)
+      @(LLMResponse.tool-calls r)
+      @""))
 
   (doc to-json "converts a message to a JSON object with role and content keys.
 Includes tool_calls for assistant tool call messages, and tool_call_id for
 tool result messages.")
   (defn to-json [m]
-    (let [base [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
-                (JSON.entry @"content" (JSON.Str @(Message.content m)))]
+    (let [base [
+            (JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
+            (JSON.entry @"content" (JSON.Str @(Message.content m)))]
           with-tool-id (if (> (String.length (Message.tool-call-id m)) 0)
-                         (Array.push-back base (JSON.entry @"tool_call_id" (JSON.Str @(Message.tool-call-id m))))
-                         base)
+            (Array.push-back
+              base
+              (JSON.entry @"tool_call_id" (JSON.Str @(Message.tool-call-id m))))
+            base)
           with-calls (if (> (Array.length (Message.tool-calls m)) 0)
-                       (Array.push-back with-tool-id
-                         (JSON.entry @"tool_calls"
-                           (JSON.Arr (Array.copy-map
-                             &(fn [tc]
-                               (let [args-json (match (JSON.parse (ToolCall.arguments tc))
-                                                 (Result.Success j) j
-                                                 _ (JSON.Str @(ToolCall.arguments tc)))]
-                                 (Box.init (JSON.obj [(JSON.entry @"id" (JSON.Str @(ToolCall.id tc)))
-                                                      (JSON.entry @"type" (JSON.Str @"function"))
-                                                      (JSON.entry @"function"
-                                                        (JSON.obj [(JSON.entry @"name" (JSON.Str @(ToolCall.name tc)))
-                                                                   (JSON.entry @"arguments" args-json)]))]))))
-                             (Message.tool-calls m)))))
-                       with-tool-id)]
-      (JSON.obj with-calls)))
-)
+            (Array.push-back
+              with-tool-id
+              (JSON.entry
+                @"tool_calls"
+                (JSON.Arr
+                  (Array.copy-map
+                    &(fn [tc]
+                      (let [args-json (match (JSON.parse (ToolCall.arguments tc))
+                              (Result.Success j) j
+                              _ (JSON.Str @(ToolCall.arguments tc)))]
+                        (Box.init
+                          (JSON.obj
+                            [
+                              (JSON.entry @"id" (JSON.Str @(ToolCall.id tc)))
+                              (JSON.entry @"type" (JSON.Str @"function"))
+                              (JSON.entry
+                                @"function"
+                                (JSON.obj
+                                  [
+                                    (JSON.entry
+                                      @"name"
+                                      (JSON.Str @(ToolCall.name tc)))
+                                    (JSON.entry @"arguments" args-json)]))]))))
+                    (Message.tool-calls m)))))
+            with-tool-id)]
+      (JSON.obj with-calls))))
 
 ; ===========================================================================
 ; Internal helpers
@@ -196,11 +210,16 @@ tool result messages.")
 (doc llm-tooldef-to-openai-json "converts a `ToolDef` to OpenAI's function
 tool format, which is also what Ollama accepts.")
 (defn llm-tooldef-to-openai-json [td]
-  (JSON.obj [(JSON.entry @"type" (JSON.Str @"function"))
-             (JSON.entry @"function"
-               (JSON.obj [(JSON.entry @"name" (JSON.Str @(ToolDef.name td)))
-                          (JSON.entry @"description" (JSON.Str @(ToolDef.description td)))
-                          (JSON.entry @"parameters" @(ToolDef.parameters td))]))]))
+  (JSON.obj
+    [
+      (JSON.entry @"type" (JSON.Str @"function"))
+      (JSON.entry
+        @"function"
+        (JSON.obj
+          [
+            (JSON.entry @"name" (JSON.Str @(ToolDef.name td)))
+            (JSON.entry @"description" (JSON.Str @(ToolDef.description td)))
+            (JSON.entry @"parameters" @(ToolDef.parameters td))]))]))
 
 (doc llm-parse-openai-tool-calls "extracts `tool_calls` from an OpenAI or
 Ollama response message JSON value, returning an array of `ToolCall`s.")
@@ -209,14 +228,15 @@ Ollama response message JSON value, returning an array of `ToolCall`s.")
     (Maybe.Just arr)
       (match (JSON.as-arr &arr)
         (Maybe.Just boxes)
-          (Array.copy-map &(fn [bx]
-            (let [tc (Box.peek bx)]
-              (ToolCall.init
-                (llm-json-str tc &[@"id"])
-                (llm-json-str tc &[@"function" @"name"])
-                (match (JSON.get-in tc &[@"function" @"arguments"])
-                  (Maybe.Just args) (llm-json-to-str &args)
-                  _ @""))))
+          (Array.copy-map
+            &(fn [bx]
+              (let [tc (Box.peek bx)]
+                (ToolCall.init
+                  (llm-json-str tc &[@"id"])
+                  (llm-json-str tc &[@"function" @"name"])
+                  (match (JSON.get-in tc &[@"function" @"arguments"])
+                    (Maybe.Just args) (llm-json-to-str &args)
+                    _ @""))))
             &boxes)
         _ [])
     _ []))
@@ -230,9 +250,7 @@ of objects using the OpenAI wire format.")
 given array. Used by providers that send system prompts in a dedicated field.")
 (defn llm-filter-non-system [msgs]
   (Array.copy-filter
-    &(fn [m] (match-ref (Message.role m)
-               (Role.System) false
-               _ true))
+    &(fn [m] (match-ref (Message.role m) (Role.System) false _ true))
     msgs))
 
 (doc llm-system-text "joins all system messages in the array into a single
@@ -240,20 +258,17 @@ newline-separated string. Returns `(Maybe.Nothing)` if there are no system
 messages.")
 (defn llm-system-text [msgs]
   (let [sys-msgs (Array.copy-filter
-                   &(fn [m] (match-ref (Message.role m)
-                              (Role.System) true
-                              _ false))
-                   msgs)]
+          &(fn [m] (match-ref (Message.role m) (Role.System) true _ false))
+          msgs)]
     (if (= (Array.length &sys-msgs) 0)
       (Maybe.Nothing)
-      (Maybe.Just (String.join "\n" &(Array.copy-map &(fn [m] @(Message.content m)) &sys-msgs))))))
+      (Maybe.Just (String.join "
+" &(Array.copy-map &(fn [m] @(Message.content m)) &sys-msgs))))))
 
 (doc llm-json-to-str "serializes a JSON value to a string. Returns the empty
 string on error (which only happens for `NaN` or infinity numeric values).")
 (defn llm-json-to-str [j]
-  (match (JSON.str j)
-    (Result.Success s) s
-    (Result.Error _) @""))
+  (match (JSON.str j) (Result.Success s) s (Result.Error _) @""))
 
 (doc llm-json-parse "parses a JSON string, collapsing the specific parse error
 type into a plain `String` error for use in our `Result` chains.")
@@ -264,13 +279,11 @@ type into a plain `String` error for use in our `Result` chains.")
 
 (doc llm-transport-error "wraps a message string in an `LLMError.Transport`
 result.")
-(defn llm-transport-error [msg]
-  (Result.Error (LLMError.Transport msg)))
+(defn llm-transport-error [msg] (Result.Error (LLMError.Transport msg)))
 
 (doc llm-api-error "constructs an `LLMError.Api` result from an HTTP status
 code, error type, and message.")
-(defn llm-api-error [code typ msg]
-  (Result.Error (LLMError.Api code typ msg)))
+(defn llm-api-error [code typ msg] (Result.Error (LLMError.Api code typ msg)))
 
 (doc llm-parse-error-body "parses a provider error response body using the
 given JSON key paths to extract the error type and message. Falls back to a
@@ -278,9 +291,7 @@ generic error with the raw body on parse failure.")
 (defn llm-parse-error-body [code body type-path msg-path]
   (match (llm-json-parse body)
     (Result.Success j)
-      (llm-api-error code
-        (llm-json-str &j type-path)
-        (llm-json-str &j msg-path))
+      (llm-api-error code (llm-json-str &j type-path) (llm-json-str &j msg-path))
     _ (llm-api-error code @"unknown" @body)))
 
 (doc llm-parse-error "parses a provider-specific error response into an
@@ -288,16 +299,17 @@ generic error with the raw body on parse failure.")
 (defn llm-parse-error [provider code body]
   (cond
     (= provider "openai")
-      (llm-parse-error-body code body &[@"error" @"type"] &[@"error" @"message"])
+    (llm-parse-error-body code body &[@"error" @"type"] &[@"error" @"message"])
     (= provider "anthropic")
-      (llm-parse-error-body code body &[@"error" @"type"] &[@"error" @"message"])
+    (llm-parse-error-body code body &[@"error" @"type"] &[@"error" @"message"])
     (= provider "ollama")
-      ; Ollama errors are just `{"error": "message"}` with no structured type
-      (match (llm-json-parse body)
-        (Result.Success j) (llm-api-error code @"error" (llm-json-str &j &[@"error"]))
-        _ (llm-api-error code @"unknown" @body))
+    ; Ollama errors are just `{"error": "message"}` with no structured type
+    (match (llm-json-parse body)
+      (Result.Success j)
+        (llm-api-error code @"error" (llm-json-str &j &[@"error"]))
+      _ (llm-api-error code @"unknown" @body))
     (= provider "gemini")
-      (llm-parse-error-body code body &[@"error" @"status"] &[@"error" @"message"])
+    (llm-parse-error-body code body &[@"error" @"status"] &[@"error" @"message"])
     (llm-api-error code @"unknown" @body)))
 
 (doc llm-json-int "extracts an integer from a JSON path. Returns `0` if the
@@ -319,45 +331,64 @@ string if the path is missing or the value isn't a string.")
 ; ===========================================================================
 
 (defmodule OpenAI
-
   (hidden add-format)
   (private add-format)
   (defn add-format [entries req]
     (cond
       (= @(LLMRequest.format-mode req) format-json)
-        (Array.push-back entries
-          (JSON.entry @"response_format"
+        (Array.push-back
+          entries
+          (JSON.entry
+            @"response_format"
             (JSON.obj [(JSON.entry @"type" (JSON.Str @"json_object"))])))
       (= @(LLMRequest.format-mode req) format-json-schema)
-        (Array.push-back entries
-          (JSON.entry @"response_format"
-            (JSON.obj [(JSON.entry @"type" (JSON.Str @"json_schema"))
-                       (JSON.entry @"json_schema"
-                         (JSON.obj [(JSON.entry @"name" (JSON.Str @"result"))
-                                    (JSON.entry @"strict" (JSON.Bool true))
-                                    (JSON.entry @"schema" @(LLMRequest.format-schema req))]))])))
+        (Array.push-back
+          entries
+          (JSON.entry
+            @"response_format"
+            (JSON.obj
+              [
+                (JSON.entry @"type" (JSON.Str @"json_schema"))
+                (JSON.entry
+                  @"json_schema"
+                  (JSON.obj
+                    [
+                      (JSON.entry @"name" (JSON.Str @"result"))
+                      (JSON.entry @"strict" (JSON.Bool true))
+                      (JSON.entry @"schema" @(LLMRequest.format-schema req))]))])))
       entries))
 
   (hidden body)
   (private body)
   (defn body [req stream?]
     (let [msgs (llm-messages-to-json (LLMRequest.messages req))
-          base [(JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
-                (JSON.entry @"messages" msgs)
-                (JSON.entry @"max_tokens" (JSON.Num (Double.from-int @(LLMRequest.max-tokens req))))
-                (JSON.entry @"temperature" (JSON.Num @(LLMRequest.temperature req)))]
+          base [
+            (JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
+            (JSON.entry @"messages" msgs)
+            (JSON.entry
+              @"max_tokens"
+              (JSON.Num (Double.from-int @(LLMRequest.max-tokens req))))
+            (JSON.entry @"temperature" (JSON.Num @(LLMRequest.temperature req)))]
           with-stream (if stream?
-                        (Array.push-back base (JSON.entry @"stream" (JSON.Bool true)))
-                        base)
-          with-tools (if (and (not stream?) (> (Array.length (LLMRequest.tools req)) 0))
-                       (Array.push-back with-stream
-                         (JSON.entry @"tools"
-                           (JSON.Arr (Array.copy-map &(fn [td] (Box.init (llm-tooldef-to-openai-json td))) (LLMRequest.tools req)))))
-                       with-stream)
+            (Array.push-back base (JSON.entry @"stream" (JSON.Bool true)))
+            base)
+          with-tools (if (and
+              (not stream?)
+              (> (Array.length (LLMRequest.tools req)) 0))
+            (Array.push-back
+              with-stream
+              (JSON.entry
+                @"tools"
+                (JSON.Arr
+                  (Array.copy-map
+                    &(fn [td] (Box.init (llm-tooldef-to-openai-json td)))
+                    (LLMRequest.tools req)))))
+            with-stream)
           entries (OpenAI.add-format with-tools req)]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc build-request "builds the JSON request body for the OpenAI chat completions API.")
+  (doc build-request
+    "builds the JSON request body for the OpenAI chat completions API.")
   (defn build-request [req] (OpenAI.body req false))
 
   (doc parse-response "parses an OpenAI chat completions response.")
@@ -366,23 +397,29 @@ string if the path is missing or the value isn't a string.")
       (Result.Error e) (Result.Error e)
       (Result.Success j)
         (let [choice (match (JSON.get &j "choices")
-                       (Maybe.Just arr) (JSON.nth &arr 0)
-                       _ (Maybe.Nothing))
+                (Maybe.Just arr) (JSON.nth &arr 0)
+                _ (Maybe.Nothing))
               content (match-ref &choice
-                        (Maybe.Just c) (llm-json-str c &[@"message" @"content"])
-                        (Maybe.Nothing) @"")
+                (Maybe.Just c) (llm-json-str c &[@"message" @"content"])
+                (Maybe.Nothing) @"")
               stop-reason (match-ref &choice
-                            (Maybe.Just c) (llm-json-str c &[@"finish_reason"])
-                            (Maybe.Nothing) @"")
+                (Maybe.Just c) (llm-json-str c &[@"finish_reason"])
+                (Maybe.Nothing) @"")
               tool-calls (match-ref &choice
-                           (Maybe.Just c)
-                             (match (JSON.get c "message")
-                               (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
-                               _ [])
-                           (Maybe.Nothing) [])
+                (Maybe.Just c)
+                  (match (JSON.get c "message")
+                    (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
+                    _ [])
+                (Maybe.Nothing) [])
               input-tokens (llm-json-int &j &[@"usage" @"prompt_tokens"])
               output-tokens (llm-json-int &j &[@"usage" @"completion_tokens"])]
-          (Result.Success (LLMResponse.init content stop-reason input-tokens output-tokens tool-calls)))))
+          (Result.Success
+            (LLMResponse.init
+              content
+              stop-reason
+              input-tokens
+              output-tokens
+              tool-calls)))))
 
   (doc endpoint "returns the chat completions endpoint path.")
   (defn endpoint [_config] @"/v1/chat/completions")
@@ -394,7 +431,8 @@ string if the path is missing or the value isn't a string.")
        @"Authorization" [auth]
        @"Content-Length" [(Int.str body-len)]}))
 
-  (doc build-stream-request "builds a streaming OpenAI chat completions request.")
+  (doc build-stream-request
+    "builds a streaming OpenAI chat completions request.")
   (defn build-stream-request [req] (OpenAI.body req true))
 
   (doc parse-delta "extracts the content delta from a streaming SSE data line.
@@ -415,66 +453,89 @@ so callers can distinguish them from regular content tokens.")
                       (let [tok (llm-json-str &choice &[@"delta" @"content"])]
                         (if (> (String.length &tok) 0)
                           (Maybe.Just tok)
-                          (let [think (llm-json-str &choice &[@"delta" @"reasoning"])]
+                          (let [think (llm-json-str
+                                  &choice
+                                  &[@"delta" @"reasoning"])]
                             (if (> (String.length &think) 0)
-                              (Maybe.Just (String.concat &[@"\x01" think]))
+                              (Maybe.Just (String.concat &[@"" think]))
                               (Maybe.Nothing)))))
                     _ (Maybe.Nothing))
                 _ (Maybe.Nothing))
             _ (Maybe.Nothing)))
-        (Maybe.Nothing))))
-)
+        (Maybe.Nothing)))))
 
 ; ===========================================================================
 ; Provider: Anthropic
 ; ===========================================================================
 
 (defmodule Anthropic
-
   (hidden system-text)
   (private system-text)
   (defn system-text [req]
     (let [sys-base (Maybe.from (llm-system-text (LLMRequest.messages req)) @"")
           fmt-instruction (cond
-                            (= @(LLMRequest.format-mode req) format-json)
-                              @"You must respond with valid JSON only, no other text."
-                            (= @(LLMRequest.format-mode req) format-json-schema)
-                              (String.concat &[@"You must respond with valid JSON matching this schema, no other text:\n"
-                                               (llm-json-to-str (LLMRequest.format-schema req))])
-                            @"")]
+            (= @(LLMRequest.format-mode req) format-json)
+              @"You must respond with valid JSON only, no other text."
+            (= @(LLMRequest.format-mode req) format-json-schema)
+              (String.concat
+                &[
+                  @"You must respond with valid JSON matching this schema, no other text:
+"
+                  (llm-json-to-str (LLMRequest.format-schema req))])
+            @"")]
       (cond
         (= (String.length &fmt-instruction) 0) sys-base
         (= (String.length &sys-base) 0) fmt-instruction
-        (String.concat &[sys-base @"\n\n" fmt-instruction]))))
+        (String.concat &[sys-base @"
+
+" fmt-instruction]))))
 
   (hidden body)
   (private body)
   (defn body [req stream?]
     (let [non-system (llm-filter-non-system (LLMRequest.messages req))
-          msgs (JSON.Arr (Array.copy-map &(fn [m] (Box.init (Message.to-json m))) &non-system))
-          base [(JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
-                (JSON.entry @"messages" msgs)
-                (JSON.entry @"max_tokens" (JSON.Num (Double.from-int @(LLMRequest.max-tokens req))))
-                (JSON.entry @"temperature" (JSON.Num @(LLMRequest.temperature req)))]
+          msgs (JSON.Arr
+            (Array.copy-map &(fn [m] (Box.init (Message.to-json m))) &non-system))
+          base [
+            (JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
+            (JSON.entry @"messages" msgs)
+            (JSON.entry
+              @"max_tokens"
+              (JSON.Num (Double.from-int @(LLMRequest.max-tokens req))))
+            (JSON.entry @"temperature" (JSON.Num @(LLMRequest.temperature req)))]
           with-stream (if stream?
-                        (Array.push-back base (JSON.entry @"stream" (JSON.Bool true)))
-                        base)
+            (Array.push-back base (JSON.entry @"stream" (JSON.Bool true)))
+            base)
           sys-text (Anthropic.system-text req)
           with-sys (if (> (String.length &sys-text) 0)
-                     (Array.push-back with-stream (JSON.entry @"system" (JSON.Str sys-text)))
-                     with-stream)
-          entries (if (and (not stream?) (> (Array.length (LLMRequest.tools req)) 0))
-                    (Array.push-back with-sys
-                      (JSON.entry @"tools"
-                        (JSON.Arr (Array.copy-map
-                          &(fn [td] (Box.init (JSON.obj [(JSON.entry @"name" (JSON.Str @(ToolDef.name td)))
-                                                         (JSON.entry @"description" (JSON.Str @(ToolDef.description td)))
-                                                         (JSON.entry @"input_schema" @(ToolDef.parameters td))])))
-                          (LLMRequest.tools req)))))
-                    with-sys)]
+            (Array.push-back
+              with-stream
+              (JSON.entry @"system" (JSON.Str sys-text)))
+            with-stream)
+          entries (if (and
+              (not stream?)
+              (> (Array.length (LLMRequest.tools req)) 0))
+            (Array.push-back
+              with-sys
+              (JSON.entry
+                @"tools"
+                (JSON.Arr
+                  (Array.copy-map
+                    &(fn [td]
+                      (Box.init
+                        (JSON.obj
+                          [
+                            (JSON.entry @"name" (JSON.Str @(ToolDef.name td)))
+                            (JSON.entry
+                              @"description"
+                              (JSON.Str @(ToolDef.description td)))
+                            (JSON.entry @"input_schema" @(ToolDef.parameters td))])))
+                    (LLMRequest.tools req)))))
+            with-sys)]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc build-request "builds the JSON request body for the Anthropic messages API.")
+  (doc build-request
+    "builds the JSON request body for the Anthropic messages API.")
   (defn build-request [req] (Anthropic.body req false))
 
   (doc parse-response "parses an Anthropic messages API response.")
@@ -483,36 +544,46 @@ so callers can distinguish them from regular content tokens.")
       (Result.Error e) (Result.Error e)
       (Result.Success j)
         (let [content (match (JSON.get &j "content")
-                        (Maybe.Just arr)
-                          (match (JSON.nth &arr 0)
-                            (Maybe.Just block)
-                              (if (= &(llm-json-str &block &[@"type"]) "text")
-                                (llm-json-str &block &[@"text"])
-                                @"")
-                            _ @"")
-                        _ @"")
+                (Maybe.Just arr)
+                  (match (JSON.nth &arr 0)
+                    (Maybe.Just block)
+                      (if (= &(llm-json-str &block &[@"type"]) "text")
+                        (llm-json-str &block &[@"text"])
+                        @"")
+                    _ @"")
+                _ @"")
               tool-calls (match (JSON.get &j "content")
-                           (Maybe.Just arr)
-                             (match (JSON.as-arr &arr)
-                               (Maybe.Just boxes)
-                                 (let [calls (Array.copy-filter
-                                               &(fn [bx] (= &(llm-json-str (Box.peek bx) &[@"type"]) "tool_use"))
-                                               &boxes)]
-                                   (Array.copy-map &(fn [bx]
-                                     (let [tc (Box.peek bx)]
-                                       (ToolCall.init
-                                         (llm-json-str tc &[@"id"])
-                                         (llm-json-str tc &[@"name"])
-                                         (match (JSON.get tc "input")
-                                           (Maybe.Just inp) (llm-json-to-str &inp)
-                                           _ @""))))
-                                     &calls))
-                               _ [])
-                           _ [])
+                (Maybe.Just arr)
+                  (match (JSON.as-arr &arr)
+                    (Maybe.Just boxes)
+                      (let [calls (Array.copy-filter
+                              &(fn [bx]
+                                (=
+                                  &(llm-json-str (Box.peek bx) &[@"type"])
+                                  "tool_use"))
+                              &boxes)]
+                        (Array.copy-map
+                          &(fn [bx]
+                            (let [tc (Box.peek bx)]
+                              (ToolCall.init
+                                (llm-json-str tc &[@"id"])
+                                (llm-json-str tc &[@"name"])
+                                (match (JSON.get tc "input")
+                                  (Maybe.Just inp) (llm-json-to-str &inp)
+                                  _ @""))))
+                          &calls))
+                    _ [])
+                _ [])
               stop-reason (llm-json-str &j &[@"stop_reason"])
               input-tokens (llm-json-int &j &[@"usage" @"input_tokens"])
               output-tokens (llm-json-int &j &[@"usage" @"output_tokens"])]
-          (Result.Success (LLMResponse.init content stop-reason input-tokens output-tokens tool-calls)))))
+          (Result.Success
+            (LLMResponse.init
+              content
+              stop-reason
+              input-tokens
+              output-tokens
+              tool-calls)))))
 
   (doc endpoint "returns the messages API endpoint path.")
   (defn endpoint [_config] @"/v1/messages")
@@ -540,36 +611,52 @@ so callers can distinguish them from regular content tokens.")
                   (Maybe.Nothing))
               _ (Maybe.Nothing))
           _ (Maybe.Nothing)))
-      (Maybe.Nothing)))
-)
+      (Maybe.Nothing))))
 
 ; ===========================================================================
 ; Provider: Ollama
 ; ===========================================================================
 
 (defmodule Ollama
-
   (hidden body)
   (private body)
   (defn body [req stream?]
     (let [msgs (llm-messages-to-json (LLMRequest.messages req))
-          opts (JSON.obj [(JSON.entry @"num_predict" (JSON.Num (Double.from-int @(LLMRequest.max-tokens req))))
-                          (JSON.entry @"temperature" (JSON.Num @(LLMRequest.temperature req)))])
-          base [(JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
-                (JSON.entry @"messages" msgs)
-                (JSON.entry @"stream" (JSON.Bool stream?))
-                (JSON.entry @"options" opts)]
-          with-tools (if (and (not stream?) (> (Array.length (LLMRequest.tools req)) 0))
-                       (Array.push-back base
-                         (JSON.entry @"tools"
-                           (JSON.Arr (Array.copy-map &(fn [td] (Box.init (llm-tooldef-to-openai-json td))) (LLMRequest.tools req)))))
-                       base)
+          opts (JSON.obj
+            [
+              (JSON.entry
+                @"num_predict"
+                (JSON.Num (Double.from-int @(LLMRequest.max-tokens req))))
+              (JSON.entry
+                @"temperature"
+                (JSON.Num @(LLMRequest.temperature req)))])
+          base [
+            (JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
+            (JSON.entry @"messages" msgs)
+            (JSON.entry @"stream" (JSON.Bool stream?))
+            (JSON.entry @"options" opts)]
+          with-tools (if (and
+              (not stream?)
+              (> (Array.length (LLMRequest.tools req)) 0))
+            (Array.push-back
+              base
+              (JSON.entry
+                @"tools"
+                (JSON.Arr
+                  (Array.copy-map
+                    &(fn [td] (Box.init (llm-tooldef-to-openai-json td)))
+                    (LLMRequest.tools req)))))
+            base)
           entries (cond
-                    (= @(LLMRequest.format-mode req) format-json)
-                      (Array.push-back with-tools (JSON.entry @"format" (JSON.Str @"json")))
-                    (= @(LLMRequest.format-mode req) format-json-schema)
-                      (Array.push-back with-tools (JSON.entry @"format" @(LLMRequest.format-schema req)))
-                    with-tools)]
+            (= @(LLMRequest.format-mode req) format-json)
+              (Array.push-back
+                with-tools
+                (JSON.entry @"format" (JSON.Str @"json")))
+            (= @(LLMRequest.format-mode req) format-json-schema)
+              (Array.push-back
+                with-tools
+                (JSON.entry @"format" @(LLMRequest.format-schema req)))
+            with-tools)]
       (llm-json-to-str &(JSON.obj entries))))
 
   (doc build-request "builds the JSON request body for the Ollama chat API.")
@@ -582,12 +669,18 @@ so callers can distinguish them from regular content tokens.")
       (Result.Success j)
         (let [content (llm-json-str &j &[@"message" @"content"])
               tool-calls (match (JSON.get &j "message")
-                           (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
-                           _ [])
+                (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
+                _ [])
               stop-reason (llm-json-str &j &[@"done_reason"])
               input-tokens (llm-json-int &j &[@"prompt_eval_count"])
               output-tokens (llm-json-int &j &[@"eval_count"])]
-          (Result.Success (LLMResponse.init content stop-reason input-tokens output-tokens tool-calls)))))
+          (Result.Success
+            (LLMResponse.init
+              content
+              stop-reason
+              input-tokens
+              output-tokens
+              tool-calls)))))
 
   (doc endpoint "returns the chat API endpoint path.")
   (defn endpoint [_config] @"/api/chat")
@@ -616,11 +709,10 @@ them from regular content tokens.")
                   (Maybe.Just tok)
                   (let [think (llm-json-str &j &[@"message" @"thinking"])]
                     (if (> (String.length &think) 0)
-                      (Maybe.Just (String.concat &[@"\x01" think]))
+                      (Maybe.Just (String.concat &[@"" think]))
                       (Maybe.Nothing))))))
           _ (Maybe.Nothing))
-      _ (Maybe.Nothing)))
-)
+      _ (Maybe.Nothing))))
 
 ; ===========================================================================
 ; Provider: Gemini
@@ -629,50 +721,93 @@ them from regular content tokens.")
 (doc gemini-message-to-json "converts a `Message` to Gemini's `contents`
 element format, with a single `text` part wrapping the content.")
 (defn gemini-message-to-json [m]
-  (JSON.obj [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
-             (JSON.entry @"parts" (JSON.Arr [(Box.init
-               (JSON.obj [(JSON.entry @"text" (JSON.Str @(Message.content m)))]))]))]))
+  (JSON.obj
+    [
+      (JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
+      (JSON.entry
+        @"parts"
+        (JSON.Arr
+          [
+            (Box.init
+              (JSON.obj [(JSON.entry @"text" (JSON.Str @(Message.content m)))]))]))]))
 
 (defmodule Gemini
-
   (hidden body)
   (private body)
   (defn body [req include-tools?]
-    (let [non-system (the (Array Message) (llm-filter-non-system (LLMRequest.messages req)))
-          contents (JSON.Arr (Array.copy-map &(fn [m] (Box.init (gemini-message-to-json m))) &non-system))
-          gen-base [(JSON.entry @"maxOutputTokens" (JSON.Num (Double.from-int @(LLMRequest.max-tokens req))))
-                    (JSON.entry @"temperature" (JSON.Num @(LLMRequest.temperature req)))]
+    (let [non-system (the
+            (Array Message)
+            (llm-filter-non-system (LLMRequest.messages req)))
+          contents (JSON.Arr
+            (Array.copy-map
+              &(fn [m] (Box.init (gemini-message-to-json m)))
+              &non-system))
+          gen-base [
+            (JSON.entry
+              @"maxOutputTokens"
+              (JSON.Num (Double.from-int @(LLMRequest.max-tokens req))))
+            (JSON.entry @"temperature" (JSON.Num @(LLMRequest.temperature req)))]
           gen-with-mime (if (> @(LLMRequest.format-mode req) format-text)
-                          (Array.push-back gen-base
-                            (JSON.entry @"responseMimeType" (JSON.Str @"application/json")))
-                          gen-base)
+            (Array.push-back
+              gen-base
+              (JSON.entry @"responseMimeType" (JSON.Str @"application/json")))
+            gen-base)
           gen-entries (if (= @(LLMRequest.format-mode req) format-json-schema)
-                        (Array.push-back gen-with-mime
-                          (JSON.entry @"responseSchema" @(LLMRequest.format-schema req)))
-                        gen-with-mime)
+            (Array.push-back
+              gen-with-mime
+              (JSON.entry @"responseSchema" @(LLMRequest.format-schema req)))
+            gen-with-mime)
           gen-config (JSON.obj gen-entries)
-          base [(JSON.entry @"contents" contents)
-                (JSON.entry @"generationConfig" gen-config)]
+          base [
+            (JSON.entry @"contents" contents)
+            (JSON.entry @"generationConfig" gen-config)]
           with-sys (match (llm-system-text (LLMRequest.messages req))
-                     (Maybe.Just sys)
-                       (let [si (JSON.obj [(JSON.entry @"parts" (JSON.Arr [(Box.init
-                                             (JSON.obj [(JSON.entry @"text" (JSON.Str sys))]))]))])]
-                         (Array.push-back base (JSON.entry @"systemInstruction" si)))
-                     (Maybe.Nothing) base)
-          entries (if (and include-tools? (> (Array.length (LLMRequest.tools req)) 0))
-                    (Array.push-back with-sys
-                      (JSON.entry @"tools"
-                        (JSON.Arr [(Box.init
-                          (JSON.obj [(JSON.entry @"functionDeclarations"
-                            (JSON.Arr (Array.copy-map
-                              &(fn [td] (Box.init (JSON.obj [(JSON.entry @"name" (JSON.Str @(ToolDef.name td)))
-                                                             (JSON.entry @"description" (JSON.Str @(ToolDef.description td)))
-                                                             (JSON.entry @"parameters" @(ToolDef.parameters td))])))
-                              (LLMRequest.tools req))))]))])))
-                    with-sys)]
+            (Maybe.Just sys)
+              (let [si (JSON.obj
+                      [
+                        (JSON.entry
+                          @"parts"
+                          (JSON.Arr
+                            [
+                              (Box.init
+                                (JSON.obj [(JSON.entry @"text" (JSON.Str sys))]))]))])]
+                (Array.push-back base (JSON.entry @"systemInstruction" si)))
+            (Maybe.Nothing) base)
+          entries (if (and
+              include-tools?
+              (> (Array.length (LLMRequest.tools req)) 0))
+            (Array.push-back
+              with-sys
+              (JSON.entry
+                @"tools"
+                (JSON.Arr
+                  [
+                    (Box.init
+                      (JSON.obj
+                        [
+                          (JSON.entry
+                            @"functionDeclarations"
+                            (JSON.Arr
+                              (Array.copy-map
+                                &(fn [td]
+                                  (Box.init
+                                    (JSON.obj
+                                      [
+                                        (JSON.entry
+                                          @"name"
+                                          (JSON.Str @(ToolDef.name td)))
+                                        (JSON.entry
+                                          @"description"
+                                          (JSON.Str @(ToolDef.description td)))
+                                        (JSON.entry
+                                          @"parameters"
+                                          @(ToolDef.parameters td))])))
+                                (LLMRequest.tools req))))]))])))
+            with-sys)]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc build-request "builds the JSON request body for the Gemini generateContent API.")
+  (doc build-request
+    "builds the JSON request body for the Gemini generateContent API.")
   (defn build-request [req] (Gemini.body req true))
 
   (doc parse-response "parses a Gemini generateContent API response.")
@@ -681,55 +816,74 @@ element format, with a single `text` part wrapping the content.")
       (Result.Error e) (Result.Error e)
       (Result.Success j)
         (let [cand (match (JSON.get &j "candidates")
-                     (Maybe.Just arr) (JSON.nth &arr 0)
-                     _ (Maybe.Nothing))
+                (Maybe.Just arr) (JSON.nth &arr 0)
+                _ (Maybe.Nothing))
               content (match-ref &cand
-                        (Maybe.Just c)
-                          (match (JSON.get-in c &[@"content" @"parts"])
-                            (Maybe.Just parts)
-                              (match (JSON.nth &parts 0)
-                                (Maybe.Just part) (llm-json-str &part &[@"text"])
-                                _ @"")
-                            _ @"")
-                        (Maybe.Nothing) @"")
+                (Maybe.Just c)
+                  (match (JSON.get-in c &[@"content" @"parts"])
+                    (Maybe.Just parts)
+                      (match (JSON.nth &parts 0)
+                        (Maybe.Just part) (llm-json-str &part &[@"text"])
+                        _ @"")
+                    _ @"")
+                (Maybe.Nothing) @"")
               tool-calls (match-ref &cand
-                           (Maybe.Just c)
-                             (match (JSON.get-in c &[@"content" @"parts"])
-                               (Maybe.Just parts)
-                                 (match (JSON.as-arr &parts)
-                                   (Maybe.Just boxes)
-                                     (let [fc-parts (Array.copy-filter
-                                                      &(fn [bx] (match (JSON.get (Box.peek bx) "functionCall")
-                                                                  (Maybe.Just _) true
-                                                                  _ false))
-                                                      &boxes)]
-                                       (Array.copy-map &(fn [bx]
-                                         (let [fc (Box.peek bx)]
-                                           (ToolCall.init
-                                             @"" ; Gemini doesn't use call IDs
-                                             (llm-json-str fc &[@"functionCall" @"name"])
-                                             (match (JSON.get-in fc &[@"functionCall" @"args"])
-                                               (Maybe.Just args) (llm-json-to-str &args)
-                                               _ @""))))
-                                         &fc-parts))
-                                   _ [])
-                               _ [])
-                           (Maybe.Nothing) [])
+                (Maybe.Just c)
+                  (match (JSON.get-in c &[@"content" @"parts"])
+                    (Maybe.Just parts)
+                      (match (JSON.as-arr &parts)
+                        (Maybe.Just boxes)
+                          (let [fc-parts (Array.copy-filter
+                                  &(fn [bx]
+                                    (match (JSON.get
+                                        (Box.peek bx)
+                                        "functionCall")
+                                      (Maybe.Just _) true
+                                      _ false))
+                                  &boxes)]
+                            (Array.copy-map
+                              &(fn [bx]
+                                (let [fc (Box.peek bx)]
+                                  (ToolCall.init
+                                    @""
+                                    ; Gemini doesn't use call IDs
+                                    (llm-json-str fc &[@"functionCall" @"name"])
+                                    (match (JSON.get-in
+                                        fc
+                                        &[@"functionCall" @"args"])
+                                      (Maybe.Just args) (llm-json-to-str &args)
+                                      _ @""))))
+                              &fc-parts))
+                        _ [])
+                    _ [])
+                (Maybe.Nothing) [])
               stop-reason (match-ref &cand
-                            (Maybe.Just c) (llm-json-str c &[@"finishReason"])
-                            (Maybe.Nothing) @"")
-              input-tokens (llm-json-int &j &[@"usageMetadata" @"promptTokenCount"])
-              output-tokens (llm-json-int &j &[@"usageMetadata" @"candidatesTokenCount"])]
-          (Result.Success (LLMResponse.init content stop-reason input-tokens output-tokens tool-calls)))))
+                (Maybe.Just c) (llm-json-str c &[@"finishReason"])
+                (Maybe.Nothing) @"")
+              input-tokens (llm-json-int
+                &j
+                &[@"usageMetadata" @"promptTokenCount"])
+              output-tokens (llm-json-int
+                &j
+                &[@"usageMetadata" @"candidatesTokenCount"])]
+          (Result.Success
+            (LLMResponse.init
+              content
+              stop-reason
+              input-tokens
+              output-tokens
+              tool-calls)))))
 
   (doc endpoint "returns the generateContent endpoint path for the given model.")
   (defn endpoint [_config model]
     (String.concat &[@"/v1beta/models/" @model @":generateContent"]))
 
-  (doc stream-endpoint "returns the streamGenerateContent endpoint path for the given model.
+  (doc stream-endpoint
+    "returns the streamGenerateContent endpoint path for the given model.
 The `?alt=sse` parameter enables Server-Sent Events streaming.")
   (defn stream-endpoint [_config model]
-    (String.concat &[@"/v1beta/models/" @model @":streamGenerateContent?alt=sse"]))
+    (String.concat
+      &[@"/v1beta/models/" @model @":streamGenerateContent?alt=sse"]))
 
   (doc headers "returns the HTTP headers for a Gemini request.")
   (defn headers [config body-len]
@@ -753,14 +907,14 @@ The `?alt=sse` parameter enables Server-Sent Events streaming.")
                     (match (JSON.get-in &cand &[@"content" @"parts"])
                       (Maybe.Just parts)
                         (match (JSON.nth &parts 0)
-                          (Maybe.Just part) (Maybe.Just (llm-json-str &part &[@"text"]))
+                          (Maybe.Just part)
+                            (Maybe.Just (llm-json-str &part &[@"text"]))
                           _ (Maybe.Nothing))
                       _ (Maybe.Nothing))
                   _ (Maybe.Nothing))
               _ (Maybe.Nothing))
           _ (Maybe.Nothing)))
-      (Maybe.Nothing)))
-)
+      (Maybe.Nothing))))
 
 ; ===========================================================================
 ; Provider dispatch helpers
@@ -771,10 +925,9 @@ The `?alt=sse` parameter enables Server-Sent Events streaming.")
 the supported providers (`\"openai\"`, `\"anthropic\"`, `\"ollama\"`,
 `\"gemini\"`).")
 (defn llm-known-provider? [name]
-  (or (= name "openai")
-      (or (= name "anthropic")
-          (or (= name "ollama")
-              (= name "gemini")))))
+  (or
+    (= name "openai")
+    (or (= name "anthropic") (or (= name "ollama") (= name "gemini")))))
 
 (doc llm-build-body "builds a provider-specific sync request body JSON
 string for the given `LLMRequest`.")
@@ -853,10 +1006,13 @@ and Gemini.
     (Result.Error e) (IO.errorln &e)))
 ```")
 (defmodule LLM
-
   (doc anthropic "creates a provider config for the Anthropic API.")
   (defn anthropic [api-key]
-    (ProviderConfig.init @"anthropic" @"https://api.anthropic.com" @api-key @"2023-06-01"))
+    (ProviderConfig.init
+      @"anthropic"
+      @"https://api.anthropic.com"
+      @api-key
+      @"2023-06-01"))
 
   (doc openai "creates a provider config for the OpenAI API.")
   (defn openai [api-key]
@@ -864,8 +1020,7 @@ and Gemini.
 
   (doc ollama "creates a provider config for Ollama. Takes the base URL
 (e.g. `\"http://localhost:11434\"`).")
-  (defn ollama [base-url]
-    (ProviderConfig.init @"ollama" @base-url @"" @""))
+  (defn ollama [base-url] (ProviderConfig.init @"ollama" @base-url @"" @""))
 
   (doc vllm "creates a provider config for a vLLM server. Uses the OpenAI
 wire format. Takes the base URL (e.g. `\"http://dgx:8000\"`) and an API
@@ -875,15 +1030,33 @@ key (pass empty string for none).")
 
   (doc gemini "creates a provider config for the Google Gemini API.")
   (defn gemini [api-key]
-    (ProviderConfig.init @"gemini" @"https://generativelanguage.googleapis.com" @api-key @""))
+    (ProviderConfig.init
+      @"gemini"
+      @"https://generativelanguage.googleapis.com"
+      @api-key
+      @""))
 
   (doc chat-request "creates an LLM request without tools.")
   (defn chat-request [model messages max-tokens temperature]
-    (LLMRequest.init @model messages max-tokens temperature [] format-text (JSON.Null)))
+    (LLMRequest.init
+      @model
+      messages
+      max-tokens
+      temperature
+      []
+      format-text
+      (JSON.Null)))
 
   (doc chat-request-with-tools "creates an LLM request with tool definitions.")
   (defn chat-request-with-tools [model messages max-tokens temperature tools]
-    (LLMRequest.init @model messages max-tokens temperature tools format-text (JSON.Null)))
+    (LLMRequest.init
+      @model
+      messages
+      max-tokens
+      temperature
+      tools
+      format-text
+      (JSON.Null)))
 
   (doc chat-request-json "creates an LLM request that asks for a JSON response.
 
@@ -891,12 +1064,26 @@ Note: Anthropic has no native JSON mode, so this falls back to a system prompt
 instruction (best-effort, not guaranteed). All other providers use their native
 JSON mode.")
   (defn chat-request-json [model messages max-tokens temperature]
-    (LLMRequest.init @model messages max-tokens temperature [] format-json (JSON.Null)))
+    (LLMRequest.init
+      @model
+      messages
+      max-tokens
+      temperature
+      []
+      format-json
+      (JSON.Null)))
 
   (doc chat-request-with-schema "creates an LLM request constrained to a JSON
 schema. The schema is a JSON value (use the `JSON` constructors).")
   (defn chat-request-with-schema [model messages max-tokens temperature schema]
-    (LLMRequest.init @model messages max-tokens temperature [] format-json-schema schema))
+    (LLMRequest.init
+      @model
+      messages
+      max-tokens
+      temperature
+      []
+      format-json-schema
+      schema))
 
   (doc chat "sends a chat request to the configured provider.
 Returns `(Result LLMResponse LLMError)`. On HTTP errors (4xx/5xx), returns a
@@ -917,9 +1104,11 @@ the provider's error response. On transport failures, returns `LLMError.Transpor
                 (match (llm-parse-success name (Response.body &resp))
                   (Result.Success r) (Result.Success r)
                   (Result.Error e) (llm-transport-error e))
-                (llm-parse-error name @(Response.code &resp) (Response.body &resp)))
-            (Result.Error e) (llm-transport-error e))))))
-)
+                (llm-parse-error
+                  name
+                  @(Response.code &resp)
+                  (Response.body &resp)))
+            (Result.Error e) (llm-transport-error e)))))))
 
 ; ===========================================================================
 ; LlmStream — pull-based token stream
@@ -941,11 +1130,9 @@ Implements the `poll` interface.
       (LlmStream.close stream))
   (Result.Error e) (IO.errorln &e))
 ```")
-(deftype LlmStream [
-  rs ResponseStream
-  linebuf String
-  provider String
-])
+(deftype LlmStream [rs ResponseStream
+                    linebuf String
+                    provider String])
 
 (doc llm-stream-extract-line "extracts a single newline-terminated line from
 an `LlmStream`'s line buffer, advancing the buffer. Returns
@@ -955,11 +1142,10 @@ an `LlmStream`'s line buffer, advancing the buffer. Returns
         pos (String.index-of buf \newline)]
     (if (< pos 0)
       (Maybe.Nothing)
-      (let [line (String.byte-slice buf 0 pos)
-            rest (String.byte-slice buf (inc pos) (String.length buf))]
-        (do
-          (LlmStream.set-linebuf! s rest)
-          (Maybe.Just line))))))
+      (let-do [line (String.byte-slice buf 0 pos)
+               rest (String.byte-slice buf (inc pos) (String.length buf))]
+        (LlmStream.set-linebuf! s rest)
+        (Maybe.Just line)))))
 
 (doc llm-stream-parse-line "dispatches a single streaming response line to
 the provider-specific `parse-delta` function. Returns `(Maybe.Just token)`
@@ -973,8 +1159,8 @@ if the line contains a text delta, `(Maybe.Nothing)` otherwise.")
     (Maybe.Nothing)))
 
 (defmodule LlmStream
-
-  (doc poll "returns the next token from the LLM stream, or `Nothing` when complete.")
+  (doc poll
+    "returns the next token from the LLM stream, or `Nothing` when complete.")
   (defn poll [s]
     (let-do [result (Maybe.Nothing)
              done false]
@@ -982,30 +1168,28 @@ if the line contains a text delta, `(Maybe.Nothing)` otherwise.")
         ; try to get a line from buffer
         (match (llm-stream-extract-line s)
           (Maybe.Just line)
-            (let [trimmed (String.trim &line)]
-              (when (> (String.length &trimmed) 0)
-                (match (llm-stream-parse-line (provider s) &trimmed)
-                  (Maybe.Just tok) (set! result (Maybe.Just tok))
-                  (Maybe.Nothing) ())))
+          (let [trimmed (String.trim &line)]
+            (when (> (String.length &trimmed) 0)
+              (match (llm-stream-parse-line (provider s) &trimmed)
+                (Maybe.Just tok) (set! result (Maybe.Just tok))
+                (Maybe.Nothing) ())))
           (Maybe.Nothing)
-            ; need more data from ResponseStream
-            (match (ResponseStream.poll (rs s))
-              (Maybe.Nothing) (set! done true)
-              (Maybe.Just chunk)
-                (LlmStream.set-linebuf! s
-                  (String.concat &[@(LlmStream.linebuf s) chunk])))))
+          ; need more data from ResponseStream
+          (match (ResponseStream.poll (rs s))
+            (Maybe.Nothing) (set! done true)
+            (Maybe.Just chunk)
+              (LlmStream.set-linebuf!
+                s
+                (String.concat &[@(LlmStream.linebuf s) chunk])))))
       result))
   (implements poll LlmStream.poll)
 
   (doc close "closes the underlying connection.")
-  (defn close [s]
-    (ResponseStream.close! (rs &s)))
-)
+  (defn close [s] (ResponseStream.close! (rs &s))))
 
 ; Extend LLM module with streaming
 
 (defmodule LLM
-
   (doc chat-stream "sends a streaming chat request and returns an `LlmStream`.
 Poll the stream for tokens. Returns `(Result LlmStream LLMError)`. Checks
 the HTTP status code before returning the stream.")
@@ -1022,8 +1206,7 @@ the HTTP status code before returning the stream.")
             (Result.Success rs)
               (if (< @(ResponseStream.status-code &rs) 400)
                 (Result.Success (LlmStream.init rs @"" @name))
-                (let [sc @(ResponseStream.status-code &rs)]
-                  (do (ResponseStream.close rs)
-                      (llm-api-error sc @"stream_error" @""))))
-            (Result.Error e) (llm-transport-error e))))))
-)
+                (let-do [sc @(ResponseStream.status-code &rs)]
+                  (ResponseStream.close rs)
+                  (llm-api-error sc @"stream_error" @"")))
+            (Result.Error e) (llm-transport-error e)))))))
