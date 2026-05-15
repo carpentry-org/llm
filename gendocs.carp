@@ -80,19 +80,18 @@ plain HTTP works without OpenSSL.
 - **Ollama**: Runs over plain HTTP. Uses NDJSON for streaming (one JSON
   object per line) instead of SSE.")
 
-(save-docs
-  LLM
-  Message
-  Role
-  LlmStream
-  LLMRequest
-  LLMResponse
-  LLMError
-  ProviderConfig
-  ToolDef
-  ToolCall
-  OpenAI
-  Anthropic
-  Ollama
-  Gemini)
+(save-docs LLM
+           Message
+           Role
+           LlmStream
+           LLMRequest
+           LLMResponse
+           LLMError
+           ProviderConfig
+           ToolDef
+           ToolCall
+           OpenAI
+           Anthropic
+           Ollama
+           Gemini)
 (quit)
