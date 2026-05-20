@@ -551,4 +551,271 @@
       (match (LLM.chat &config &req)
         (Result.Error err) (match err (LLMError.Transport _) true _ false)
         _ false))
-    "LLM.chat returns Transport error on connection failure"))
+    "LLM.chat returns Transport error on connection failure")
+
+  ; =========================================================================
+  ; ImageContent and Message.user-with-image
+  ; =========================================================================
+
+  (assert-equal test
+    "user"
+    &(Role.str (Message.role
+                 &(Message.user-with-image "describe"
+                    [(ImageContent.init @"image/png" @"abc123")])))
+    "Message.user-with-image sets role to user")
+
+  (assert-equal test
+    "describe"
+    (Message.content
+      &(Message.user-with-image "describe"
+         [(ImageContent.init @"image/png" @"abc123")]))
+    "Message.user-with-image preserves text content")
+
+  (assert-equal test
+    1
+    (Array.length
+      (Message.images
+        &(Message.user-with-image "describe"
+           [(ImageContent.init @"image/png" @"abc123")])))
+    "Message.user-with-image preserves images")
+
+  (assert-equal test
+    0
+    (Array.length (Message.images &(Message.user "no images")))
+    "Message.user has empty images")
+
+  ; =========================================================================
+  ; OpenAI image serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [msg (Message.user-with-image "what is this?"
+               [(ImageContent.init @"image/png" @"AAAA")])
+          req (LLM.chat-request "gpt-4o" [msg] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "messages")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just m)
+                  (match (JSON.get &m "content")
+                    (Maybe.Just content)
+                      (and (JSON.arr? &content)
+                           (match (JSON.nth &content 0)
+                             (Maybe.Just part)
+                               (= &(llm-json-str &part &[@"type"]) "text")
+                             _ false))
+                    _ false)
+                _ false)
+            _ false)
+        _ false))
+    "OpenAI serializes image message with content array")
+
+  (assert-true test
+    (let [msg (Message.user-with-image "look"
+               [(ImageContent.init @"image/jpeg" @"DATA")])
+          req (LLM.chat-request "gpt-4o" [msg] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "messages")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just m)
+                  (match (JSON.get &m "content")
+                    (Maybe.Just content)
+                      (match (JSON.nth &content 1)
+                        (Maybe.Just img-part)
+                          (and
+                            (= &(llm-json-str &img-part &[@"type"]) "image_url")
+                            (String.contains-string?
+                              &(llm-json-str &img-part &[@"image_url" @"url"])
+                              "data:image/jpeg;base64,DATA"))
+                        _ false)
+                    _ false)
+                _ false)
+            _ false)
+        _ false))
+    "OpenAI image part has image_url type with data URI")
+
+  (assert-true test
+    (let [msg (Message.user "no images")
+          j (Message.to-json &msg)]
+      (match (JSON.get &j "content")
+        (Maybe.Just c) (JSON.str? &c)
+        _ false))
+    "Message.to-json keeps content as string when no images")
+
+  ; =========================================================================
+  ; Anthropic image serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [msg (Message.user-with-image "describe"
+               [(ImageContent.init @"image/png" @"IMGDATA")])
+          req (LLM.chat-request "claude-sonnet-4-20250514" [msg] 100 0.5)
+          body (Anthropic.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "messages")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just m)
+                  (match (JSON.get &m "content")
+                    (Maybe.Just content)
+                      (and (JSON.arr? &content)
+                           (match (JSON.nth &content 1)
+                             (Maybe.Just img-part)
+                               (and
+                                 (= &(llm-json-str &img-part &[@"type"])
+                                    "image")
+                                 (= &(llm-json-str &img-part
+                                                    &[@"source" @"type"])
+                                    "base64"))
+                             _ false))
+                    _ false)
+                _ false)
+            _ false)
+        _ false))
+    "Anthropic serializes images with source.type=base64")
+
+  (assert-true test
+    (let [msg (Message.user-with-image "describe"
+               [(ImageContent.init @"image/png" @"IMGDATA")])
+          req (LLM.chat-request "claude-sonnet-4-20250514" [msg] 100 0.5)
+          body (Anthropic.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "messages")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just m)
+                  (match (JSON.get &m "content")
+                    (Maybe.Just content)
+                      (match (JSON.nth &content 1)
+                        (Maybe.Just img-part)
+                          (and
+                            (= &(llm-json-str &img-part
+                                              &[@"source" @"media_type"])
+                               "image/png")
+                            (= &(llm-json-str &img-part &[@"source" @"data"])
+                               "IMGDATA"))
+                        _ false)
+                    _ false)
+                _ false)
+            _ false)
+        _ false))
+    "Anthropic image source has correct media_type and data")
+
+  ; =========================================================================
+  ; Ollama image serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [msg (Message.user-with-image "what is this?"
+               [(ImageContent.init @"image/png" @"OLLAMADATA")])
+          req (LLM.chat-request "llava" [msg] 100 0.5)
+          body (Ollama.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "messages")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just m)
+                  (and
+                    (= &(llm-json-str &m &[@"content"]) "what is this?")
+                    (match (JSON.get &m "images")
+                      (Maybe.Just imgs)
+                        (match (JSON.nth &imgs 0)
+                          (Maybe.Just img)
+                            (= &(Maybe.from (JSON.as-str &img) @"") "OLLAMADATA")
+                          _ false)
+                      _ false))
+                _ false)
+            _ false)
+        _ false))
+    "Ollama serializes images as separate images array with base64 strings")
+
+  (assert-true test
+    (let [msg (Message.user "text only")
+          req (LLM.chat-request "llava" [msg] 100 0.5)
+          body (Ollama.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "messages")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just m)
+                  (match (JSON.get &m "images")
+                    (Maybe.Just _) false
+                    (Maybe.Nothing) true)
+                _ false)
+            _ false)
+        _ false))
+    "Ollama omits images field for text-only messages")
+
+  ; =========================================================================
+  ; Gemini image serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [msg (Message.user-with-image "describe"
+               [(ImageContent.init @"image/jpeg" @"GEMDATA")])
+          req (LLM.chat-request "gemini-pro-vision" [msg] 100 0.5)
+          body (Gemini.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "contents")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just entry)
+                  (match (JSON.get &entry "parts")
+                    (Maybe.Just parts)
+                      (and
+                        (match (JSON.nth &parts 0)
+                          (Maybe.Just text-part)
+                            (= &(llm-json-str &text-part &[@"text"]) "describe")
+                          _ false)
+                        (match (JSON.nth &parts 1)
+                          (Maybe.Just img-part)
+                            (and
+                              (= &(llm-json-str &img-part
+                                                &[@"inlineData" @"mimeType"])
+                                 "image/jpeg")
+                              (= &(llm-json-str &img-part
+                                                &[@"inlineData" @"data"])
+                                 "GEMDATA"))
+                          _ false))
+                    _ false)
+                _ false)
+            _ false)
+        _ false))
+    "Gemini serializes images as inlineData parts")
+
+  ; =========================================================================
+  ; Multiple images
+  ; =========================================================================
+
+  (assert-true test
+    (let [msg (Message.user-with-image "compare"
+               [(ImageContent.init @"image/png" @"IMG1")
+                (ImageContent.init @"image/jpeg" @"IMG2")])
+          req (LLM.chat-request "gpt-4o" [msg] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "messages")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just m)
+                  (match (JSON.get &m "content")
+                    (Maybe.Just content)
+                      (match (JSON.as-arr &content)
+                        (Maybe.Just parts) (= (Array.length &parts) 3)
+                        _ false)
+                    _ false)
+                _ false)
+            _ false)
+        _ false))
+    "Multiple images produce text + N image parts (OpenAI)"))
