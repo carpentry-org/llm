@@ -14,6 +14,13 @@ messages.")
   (Assistant [])
   (Tool []))
 
+(doc ImageContent "represents an image to include in a message.
+
+- `media-type`: the MIME type (e.g. `\"image/png\"`, `\"image/jpeg\"`)
+- `data`: base64-encoded image data")
+(deftype ImageContent [media-type String
+                       data String])
+
 (doc ToolDef "defines a tool the model can call.
 
 - `name`: the tool name the model uses to invoke it
@@ -39,6 +46,7 @@ messages.")
 - `content`: the text content
 - `tool-calls`: non-empty for assistant messages that invoke tools
 - `tool-call-id`: non-empty for tool result messages (role = `Tool`)
+- `images`: images to include (only meaningful for user messages)
 
 Use the constructors in the `Message` module instead of `Message.init`
 directly.")
@@ -46,7 +54,8 @@ directly.")
   [role Role
    content String
    tool-calls (Array ToolCall)
-   tool-call-id String])
+   tool-call-id String
+   images (Array ImageContent)])
 
 ; Response format modes for LLMRequest.format-mode
 (doc format-text "format-mode for plain text responses (no constraint).")
@@ -144,17 +153,17 @@ rather than constructing directly.
 
 (defmodule Message
   (doc user "creates a user message.")
-  (defn user [s] (Message.init (Role.User) @s [] @""))
+  (defn user [s] (Message.init (Role.User) @s [] @"" []))
 
   (doc assistant "creates an assistant message.")
-  (defn assistant [s] (Message.init (Role.Assistant) @s [] @""))
+  (defn assistant [s] (Message.init (Role.Assistant) @s [] @"" []))
 
   (doc system "creates a system message.")
-  (defn system [s] (Message.init (Role.System) @s [] @""))
+  (defn system [s] (Message.init (Role.System) @s [] @"" []))
 
   (doc tool-result "creates a tool result message for the given tool call ID.")
   (defn tool-result [call-id content]
-    (Message.init (Role.Tool) @content [] @call-id))
+    (Message.init (Role.Tool) @content [] @call-id []))
 
   (doc from-response "converts an LLMResponse into an assistant message,
 preserving any tool calls for conversation history.")
@@ -162,14 +171,43 @@ preserving any tool calls for conversation history.")
     (Message.init (Role.Assistant)
                   @(LLMResponse.content r)
                   @(LLMResponse.tool-calls r)
-                  @""))
+                  @""
+                  []))
+
+  (doc user-with-image "creates a user message with text and images.
+Each image is an `ImageContent` with a MIME type and base64-encoded data.")
+  (defn user-with-image [s images] (Message.init (Role.User) @s [] @"" images))
 
   (doc to-json "converts a message to a JSON object with role and content keys.
 Includes tool_calls for assistant tool call messages, and tool_call_id for
-tool result messages.")
+tool result messages. When images are present, content is serialized as an
+array of content parts (OpenAI format).")
   (defn to-json [m]
-    (let [base [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
-                (JSON.entry @"content" (JSON.Str @(Message.content m)))]
+    (let [content-val (if (> (Array.length (Message.images m)) 0)
+            (let [text-part [(Box.init
+                               (JSON.obj
+                                 [(JSON.entry @"type" (JSON.Str @"text"))
+                                  (JSON.entry @"text"
+                                              (JSON.Str @(Message.content m)))]))]
+                  img-parts (Array.copy-map
+                    &(fn [img]
+                      (Box.init
+                        (JSON.obj
+                          [(JSON.entry @"type" (JSON.Str @"image_url"))
+                           (JSON.entry @"image_url"
+                                       (JSON.obj
+                                         [(JSON.entry @"url"
+                                                      (JSON.Str
+                                                        (String.concat
+                                                          &[@"data:"
+                                                            @(ImageContent.media-type img)
+                                                            @";base64,"
+                                                            @(ImageContent.data img)])))]))])))
+                    (Message.images m))]
+              (JSON.Arr (Array.concat &[text-part img-parts])))
+            (JSON.Str @(Message.content m)))
+          base [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
+                (JSON.entry @"content" content-val)]
           with-tool-id (if (> (String.length (Message.tool-call-id m)) 0)
             (Array.push-back base
                              (JSON.entry @"tool_call_id"
@@ -245,6 +283,110 @@ Ollama response message JSON value, returning an array of `ToolCall`s.")
 of objects using the OpenAI wire format.")
 (defn llm-messages-to-json [msgs]
   (JSON.Arr (Array.copy-map &(fn [m] (Box.init (Message.to-json m))) msgs)))
+
+(doc llm-message-to-anthropic-json "serializes a `Message` to the Anthropic
+wire format. When images are present, content becomes an array with `text`
+and `image` blocks using Anthropic's base64 source format.")
+(defn llm-message-to-anthropic-json [m]
+  (let [content-val (if (> (Array.length (Message.images m)) 0)
+          (let [text-part [(Box.init
+                             (JSON.obj
+                               [(JSON.entry @"type" (JSON.Str @"text"))
+                                (JSON.entry @"text"
+                                            (JSON.Str @(Message.content m)))]))]
+                img-parts (Array.copy-map
+                  &(fn [img]
+                    (Box.init
+                      (JSON.obj
+                        [(JSON.entry @"type" (JSON.Str @"image"))
+                         (JSON.entry @"source"
+                                     (JSON.obj
+                                       [(JSON.entry @"type" (JSON.Str @"base64"))
+                                        (JSON.entry @"media_type"
+                                                    (JSON.Str @(ImageContent.media-type img)))
+                                        (JSON.entry @"data"
+                                                    (JSON.Str @(ImageContent.data img)))]))])))
+                  (Message.images m))]
+            (JSON.Arr (Array.concat &[text-part img-parts])))
+          (JSON.Str @(Message.content m)))
+        base [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
+              (JSON.entry @"content" content-val)]
+        with-tool-id (if (> (String.length (Message.tool-call-id m)) 0)
+          (Array.push-back base
+                           (JSON.entry @"tool_call_id"
+                                       (JSON.Str @(Message.tool-call-id m))))
+          base)
+        with-calls (if (> (Array.length (Message.tool-calls m)) 0)
+          (Array.push-back with-tool-id
+                           (JSON.entry @"tool_calls"
+                                       (JSON.Arr
+                                         (Array.copy-map
+                                           &(fn [tc]
+                                             (let [args-json (match (JSON.parse (ToolCall.arguments tc))
+                                                     (Result.Success j) j
+                                                     _
+                                                       (JSON.Str @(ToolCall.arguments tc)))]
+                                               (Box.init
+                                                 (JSON.obj
+                                                   [(JSON.entry @"id"
+                                                                (JSON.Str @(ToolCall.id tc)))
+                                                    (JSON.entry @"type"
+                                                                (JSON.Str @"function"))
+                                                    (JSON.entry @"function"
+                                                                (JSON.obj
+                                                                  [(JSON.entry @"name"
+                                                                               (JSON.Str @(ToolCall.name tc)))
+                                                                   (JSON.entry @"arguments"
+                                                                               args-json)]))]))))
+                                           (Message.tool-calls m)))))
+          with-tool-id)]
+    (JSON.obj with-calls)))
+
+(doc llm-message-to-ollama-json "serializes a `Message` to the Ollama wire
+format. When images are present, adds an `images` array of base64 strings
+at the message level (content stays a string).")
+(defn llm-message-to-ollama-json [m]
+  (let [base [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
+              (JSON.entry @"content" (JSON.Str @(Message.content m)))]
+        with-images (if (> (Array.length (Message.images m)) 0)
+          (Array.push-back base
+                           (JSON.entry @"images"
+                                       (JSON.Arr
+                                         (Array.copy-map
+                                           &(fn [img]
+                                             (Box.init (JSON.Str @(ImageContent.data img))))
+                                           (Message.images m)))))
+          base)
+        with-tool-id (if (> (String.length (Message.tool-call-id m)) 0)
+          (Array.push-back with-images
+                           (JSON.entry @"tool_call_id"
+                                       (JSON.Str @(Message.tool-call-id m))))
+          with-images)
+        with-calls (if (> (Array.length (Message.tool-calls m)) 0)
+          (Array.push-back with-tool-id
+                           (JSON.entry @"tool_calls"
+                                       (JSON.Arr
+                                         (Array.copy-map
+                                           &(fn [tc]
+                                             (let [args-json (match (JSON.parse (ToolCall.arguments tc))
+                                                     (Result.Success j) j
+                                                     _
+                                                       (JSON.Str @(ToolCall.arguments tc)))]
+                                               (Box.init
+                                                 (JSON.obj
+                                                   [(JSON.entry @"id"
+                                                                (JSON.Str @(ToolCall.id tc)))
+                                                    (JSON.entry @"type"
+                                                                (JSON.Str @"function"))
+                                                    (JSON.entry @"function"
+                                                                (JSON.obj
+                                                                  [(JSON.entry @"name"
+                                                                               (JSON.Str @(ToolCall.name tc)))
+                                                                   (JSON.entry @"arguments"
+                                                                               args-json)]))]))))
+                                           (Message.tool-calls m)))))
+          with-tool-id)]
+    (JSON.obj with-calls)))
 
 (doc llm-filter-non-system "returns only the non-system messages from the
 given array. Used by providers that send system prompts in a dedicated field.")
@@ -489,7 +631,9 @@ so callers can distinguish them from regular content tokens.")
   (defn body [req stream?]
     (let [non-system (llm-filter-non-system (LLMRequest.messages req))
           msgs (JSON.Arr
-            (Array.copy-map &(fn [m] (Box.init (Message.to-json m))) &non-system))
+            (Array.copy-map
+              &(fn [m] (Box.init (llm-message-to-anthropic-json m)))
+              &non-system))
           base [(JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
                 (JSON.entry @"messages" msgs)
                 (JSON.entry @"max_tokens"
@@ -609,7 +753,10 @@ so callers can distinguish them from regular content tokens.")
   (hidden body)
   (private body)
   (defn body [req stream?]
-    (let [msgs (llm-messages-to-json (LLMRequest.messages req))
+    (let [msgs (JSON.Arr
+            (Array.copy-map
+              &(fn [m] (Box.init (llm-message-to-ollama-json m)))
+              (LLMRequest.messages req)))
           opts (JSON.obj
             [(JSON.entry @"num_predict"
                          (JSON.Num
@@ -699,15 +846,27 @@ them from regular content tokens.")
 ; ===========================================================================
 
 (doc gemini-message-to-json "converts a `Message` to Gemini's `contents`
-element format, with a single `text` part wrapping the content.")
+element format. When images are present, adds `inlineData` parts alongside
+the text part.")
 (defn gemini-message-to-json [m]
-  (JSON.obj
-    [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
-     (JSON.entry @"parts"
-                 (JSON.Arr
-                   [(Box.init
-                      (JSON.obj
-                        [(JSON.entry @"text" (JSON.Str @(Message.content m)))]))]))]))
+  (let [text-part [(Box.init
+                     (JSON.obj
+                       [(JSON.entry @"text" (JSON.Str @(Message.content m)))]))]
+        img-parts (Array.copy-map
+          &(fn [img]
+            (Box.init
+              (JSON.obj
+                [(JSON.entry @"inlineData"
+                             (JSON.obj
+                               [(JSON.entry @"mimeType"
+                                            (JSON.Str @(ImageContent.media-type img)))
+                                (JSON.entry @"data"
+                                            (JSON.Str @(ImageContent.data img)))]))])))
+          (Message.images m))
+        parts (Array.concat &[text-part img-parts])]
+    (JSON.obj
+      [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
+       (JSON.entry @"parts" (JSON.Arr parts))])))
 
 (defmodule Gemini
   (hidden body)
