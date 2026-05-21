@@ -559,16 +559,17 @@
 
   (assert-equal test
     "user"
-    &(Role.str (Message.role
-                 &(Message.user-with-image "describe"
-                    [(ImageContent.init @"image/png" @"abc123")])))
+    &(Role.str
+      (Message.role
+        &(Message.user-with-image "describe"
+                                  [(ImageContent.init @"image/png" @"abc123")])))
     "Message.user-with-image sets role to user")
 
   (assert-equal test
     "describe"
     (Message.content
       &(Message.user-with-image "describe"
-         [(ImageContent.init @"image/png" @"abc123")]))
+                                [(ImageContent.init @"image/png" @"abc123")]))
     "Message.user-with-image preserves text content")
 
   (assert-equal test
@@ -576,7 +577,7 @@
     (Array.length
       (Message.images
         &(Message.user-with-image "describe"
-           [(ImageContent.init @"image/png" @"abc123")])))
+                                  [(ImageContent.init @"image/png" @"abc123")])))
     "Message.user-with-image preserves images")
 
   (assert-equal test
@@ -590,7 +591,7 @@
 
   (assert-true test
     (let [msg (Message.user-with-image "what is this?"
-               [(ImageContent.init @"image/png" @"AAAA")])
+                                       [(ImageContent.init @"image/png" @"AAAA")])
           req (LLM.chat-request "gpt-4o" [msg] 100 0.5)
           body (OpenAI.build-request &req)]
       (match (JSON.parse &body)
@@ -614,7 +615,7 @@
 
   (assert-true test
     (let [msg (Message.user-with-image "look"
-               [(ImageContent.init @"image/jpeg" @"DATA")])
+                                       [(ImageContent.init @"image/jpeg" @"DATA")])
           req (LLM.chat-request "gpt-4o" [msg] 100 0.5)
           body (OpenAI.build-request &req)]
       (match (JSON.parse &body)
@@ -642,9 +643,7 @@
   (assert-true test
     (let [msg (Message.user "no images")
           j (Message.to-json &msg)]
-      (match (JSON.get &j "content")
-        (Maybe.Just c) (JSON.str? &c)
-        _ false))
+      (match (JSON.get &j "content") (Maybe.Just c) (JSON.str? &c) _ false))
     "Message.to-json keeps content as string when no images")
 
   ; =========================================================================
@@ -653,7 +652,8 @@
 
   (assert-true test
     (let [msg (Message.user-with-image "describe"
-               [(ImageContent.init @"image/png" @"IMGDATA")])
+                                       [(ImageContent.init @"image/png"
+                                                           @"IMGDATA")])
           req (LLM.chat-request "claude-sonnet-4-20250514" [msg] 100 0.5)
           body (Anthropic.build-request &req)]
       (match (JSON.parse &body)
@@ -668,11 +668,10 @@
                            (match (JSON.nth &content 1)
                              (Maybe.Just img-part)
                                (and
-                                 (= &(llm-json-str &img-part &[@"type"])
-                                    "image")
-                                 (= &(llm-json-str &img-part
-                                                    &[@"source" @"type"])
-                                    "base64"))
+                                 (= &(llm-json-str &img-part &[@"type"]) "image")
+                                 (=
+                                   &(llm-json-str &img-part &[@"source" @"type"])
+                                   "base64"))
                              _ false))
                     _ false)
                 _ false)
@@ -682,7 +681,8 @@
 
   (assert-true test
     (let [msg (Message.user-with-image "describe"
-               [(ImageContent.init @"image/png" @"IMGDATA")])
+                                       [(ImageContent.init @"image/png"
+                                                           @"IMGDATA")])
           req (LLM.chat-request "claude-sonnet-4-20250514" [msg] 100 0.5)
           body (Anthropic.build-request &req)]
       (match (JSON.parse &body)
@@ -696,11 +696,13 @@
                       (match (JSON.nth &content 1)
                         (Maybe.Just img-part)
                           (and
-                            (= &(llm-json-str &img-part
-                                              &[@"source" @"media_type"])
-                               "image/png")
-                            (= &(llm-json-str &img-part &[@"source" @"data"])
-                               "IMGDATA"))
+                            (=
+                              &(llm-json-str &img-part
+                                             &[@"source" @"media_type"])
+                              "image/png")
+                            (=
+                              &(llm-json-str &img-part &[@"source" @"data"])
+                              "IMGDATA"))
                         _ false)
                     _ false)
                 _ false)
@@ -714,7 +716,8 @@
 
   (assert-true test
     (let [msg (Message.user-with-image "what is this?"
-               [(ImageContent.init @"image/png" @"OLLAMADATA")])
+                                       [(ImageContent.init @"image/png"
+                                                           @"OLLAMADATA")])
           req (LLM.chat-request "llava" [msg] 100 0.5)
           body (Ollama.build-request &req)]
       (match (JSON.parse &body)
@@ -761,7 +764,8 @@
 
   (assert-true test
     (let [msg (Message.user-with-image "describe"
-               [(ImageContent.init @"image/jpeg" @"GEMDATA")])
+                                       [(ImageContent.init @"image/jpeg"
+                                                           @"GEMDATA")])
           req (LLM.chat-request "gemini-pro-vision" [msg] 100 0.5)
           body (Gemini.build-request &req)]
       (match (JSON.parse &body)
@@ -780,12 +784,14 @@
                         (match (JSON.nth &parts 1)
                           (Maybe.Just img-part)
                             (and
-                              (= &(llm-json-str &img-part
-                                                &[@"inlineData" @"mimeType"])
-                                 "image/jpeg")
-                              (= &(llm-json-str &img-part
-                                                &[@"inlineData" @"data"])
-                                 "GEMDATA"))
+                              (=
+                                &(llm-json-str &img-part
+                                               &[@"inlineData" @"mimeType"])
+                                "image/jpeg")
+                              (=
+                                &(llm-json-str &img-part
+                                               &[@"inlineData" @"data"])
+                                "GEMDATA"))
                           _ false))
                     _ false)
                 _ false)
@@ -799,8 +805,8 @@
 
   (assert-true test
     (let [msg (Message.user-with-image "compare"
-               [(ImageContent.init @"image/png" @"IMG1")
-                (ImageContent.init @"image/jpeg" @"IMG2")])
+                                       [(ImageContent.init @"image/png" @"IMG1")
+                                        (ImageContent.init @"image/jpeg" @"IMG2")])
           req (LLM.chat-request "gpt-4o" [msg] 100 0.5)
           body (OpenAI.build-request &req)]
       (match (JSON.parse &body)

@@ -176,8 +176,7 @@ preserving any tool calls for conversation history.")
 
   (doc user-with-image "creates a user message with text and images.
 Each image is an `ImageContent` with a MIME type and base64-encoded data.")
-  (defn user-with-image [s images]
-    (Message.init (Role.User) @s [] @"" images))
+  (defn user-with-image [s images] (Message.init (Role.User) @s [] @"" images))
 
   (doc to-json "converts a message to a JSON object with role and content keys.
 Includes tool_calls for assistant tool call messages, and tool_call_id for
@@ -186,9 +185,10 @@ array of content parts (OpenAI format).")
   (defn to-json [m]
     (let [content-val (if (> (Array.length (Message.images m)) 0)
             (let [text-part [(Box.init
-                    (JSON.obj [(JSON.entry @"type" (JSON.Str @"text"))
-                               (JSON.entry @"text"
-                                           (JSON.Str @(Message.content m)))]))]
+                               (JSON.obj
+                                 [(JSON.entry @"type" (JSON.Str @"text"))
+                                  (JSON.entry @"text"
+                                              (JSON.Str @(Message.content m)))]))]
                   img-parts (Array.copy-map
                     &(fn [img]
                       (Box.init
@@ -197,12 +197,12 @@ array of content parts (OpenAI format).")
                            (JSON.entry @"image_url"
                                        (JSON.obj
                                          [(JSON.entry @"url"
-                                            (JSON.Str
-                                              (String.concat
-                                                &[@"data:"
-                                                  @(ImageContent.media-type img)
-                                                  @";base64,"
-                                                  @(ImageContent.data img)])))]))])))
+                                                      (JSON.Str
+                                                        (String.concat
+                                                          &[@"data:"
+                                                            @(ImageContent.media-type img)
+                                                            @";base64,"
+                                                            @(ImageContent.data img)])))]))])))
                     (Message.images m))]
               (JSON.Arr (Array.concat &[text-part img-parts])))
             (JSON.Str @(Message.content m)))
@@ -290,9 +290,10 @@ and `image` blocks using Anthropic's base64 source format.")
 (defn llm-message-to-anthropic-json [m]
   (let [content-val (if (> (Array.length (Message.images m)) 0)
           (let [text-part [(Box.init
-                  (JSON.obj [(JSON.entry @"type" (JSON.Str @"text"))
-                             (JSON.entry @"text"
-                                         (JSON.Str @(Message.content m)))]))]
+                             (JSON.obj
+                               [(JSON.entry @"type" (JSON.Str @"text"))
+                                (JSON.entry @"text"
+                                            (JSON.Str @(Message.content m)))]))]
                 img-parts (Array.copy-map
                   &(fn [img]
                     (Box.init
@@ -300,16 +301,11 @@ and `image` blocks using Anthropic's base64 source format.")
                         [(JSON.entry @"type" (JSON.Str @"image"))
                          (JSON.entry @"source"
                                      (JSON.obj
-                                       [(JSON.entry @"type"
-                                                    (JSON.Str @"base64"))
+                                       [(JSON.entry @"type" (JSON.Str @"base64"))
                                         (JSON.entry @"media_type"
-                                                    (JSON.Str
-                                                      @(ImageContent.media-type
-                                                                       img)))
+                                                    (JSON.Str @(ImageContent.media-type img)))
                                         (JSON.entry @"data"
-                                                    (JSON.Str
-                                                      @(ImageContent.data
-                                                                       img)))]))])))
+                                                    (JSON.Str @(ImageContent.data img)))]))])))
                   (Message.images m))]
             (JSON.Arr (Array.concat &[text-part img-parts])))
           (JSON.Str @(Message.content m)))
@@ -358,8 +354,7 @@ at the message level (content stays a string).")
                                        (JSON.Arr
                                          (Array.copy-map
                                            &(fn [img]
-                                             (Box.init
-                                               (JSON.Str @(ImageContent.data img))))
+                                             (Box.init (JSON.Str @(ImageContent.data img))))
                                            (Message.images m)))))
           base)
         with-tool-id (if (> (String.length (Message.tool-call-id m)) 0)
@@ -864,11 +859,9 @@ the text part.")
                 [(JSON.entry @"inlineData"
                              (JSON.obj
                                [(JSON.entry @"mimeType"
-                                            (JSON.Str
-                                              @(ImageContent.media-type img)))
+                                            (JSON.Str @(ImageContent.media-type img)))
                                 (JSON.entry @"data"
-                                            (JSON.Str
-                                              @(ImageContent.data img)))]))])))
+                                            (JSON.Str @(ImageContent.data img)))]))])))
           (Message.images m))
         parts (Array.concat &[text-part img-parts])]
     (JSON.obj
