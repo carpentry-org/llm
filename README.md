@@ -12,7 +12,7 @@ Built on [http-client](https://github.com/carpentry-org/http-client) and
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/llm@0.1.0")
+(load "git@github.com:carpentry-org/llm@0.2.0")
 ```
 
 Requires OpenSSL for HTTPS providers (Anthropic, OpenAI, Gemini). Ollama over

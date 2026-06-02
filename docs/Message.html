@@ -101,6 +101,7 @@
 <li><code>content</code>: the text content</li>
 <li><code>tool-calls</code>: non-empty for assistant messages that invoke tools</li>
 <li><code>tool-call-id</code>: non-empty for tool result messages (role = <code>Tool</code>)</li>
+<li><code>images</code>: images to include (only meaningful for user messages)</li>
 </ul>
 <p>Use the constructors in the <code>Message</code> module instead of <code>Message.init</code>
 directly.</p>
@@ -208,6 +209,26 @@ preserving any tool calls for conversation history.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#images">
+                        <h3 id="images">
+                            images
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref Message a)] (Ref (Array ImageContent) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>images</code> property of a <code>Message</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#init">
                         <h3 id="init">
                             init
@@ -217,7 +238,7 @@ preserving any tool calls for conversation history.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Role, String, (Array ToolCall), String] Message)
+                        (Fn [Role, String, (Array ToolCall), String, (Array ImageContent)] Message)
                     </p>
                     <span>
                         
@@ -304,6 +325,46 @@ preserving any tool calls for conversation history.</p>
                     </span>
                     <p class="doc">
                         <p>sets the <code>content</code> property of a <code>Message</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-images">
+                        <h3 id="set-images">
+                            set-images
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [Message, (Array ImageContent)] Message)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>images</code> property of a <code>Message</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-images!">
+                        <h3 id="set-images!">
+                            set-images!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref Message a), (Array ImageContent)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>images</code> property of a <code>Message</code> in place.</p>
 
                     </p>
                 </div>
@@ -485,7 +546,8 @@ preserving any tool calls for conversation history.</p>
                     <p class="doc">
                         <p>converts a message to a JSON object with role and content keys.
 Includes tool_calls for assistant tool call messages, and tool_call_id for
-tool result messages.</p>
+tool result messages. When images are present, content is serialized as an
+array of content parts (OpenAI format).</p>
 
                     </p>
                 </div>
@@ -570,6 +632,26 @@ tool result messages.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#update-images">
+                        <h3 id="update-images">
+                            update-images
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [Message, (Ref (Fn [(Array ImageContent)] (Array ImageContent) a) b)] Message)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>images</code> property of a <code>Message</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#update-role">
                         <h3 id="update-role">
                             update-role
@@ -646,6 +728,27 @@ tool result messages.</p>
                     </pre>
                     <p class="doc">
                         <p>creates a user message.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#user-with-image">
+                        <h3 id="user-with-image">
+                            user-with-image
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Array ImageContent)] Message)
+                    </p>
+                    <pre class="args">
+                        (user-with-image s images)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a user message with text and images.
+Each image is an <code>ImageContent</code> with a MIME type and base64-encoded data.</p>
 
                     </p>
                 </div>
