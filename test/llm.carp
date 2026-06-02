@@ -836,10 +836,13 @@
       (and (JSON.arr? &j)
            (match (JSON.nth &j 0)
              (Maybe.Just tc-json)
-               (and (= &(llm-json-str &tc-json &[@"id"]) "tc1")
-                    (and (= &(llm-json-str &tc-json &[@"type"]) "function")
-                         (= &(llm-json-str &tc-json &[@"function" @"name"])
-                            "get_weather")))
+               (and
+                 (= &(llm-json-str &tc-json &[@"id"]) "tc1")
+                 (and
+                   (= &(llm-json-str &tc-json &[@"type"]) "function")
+                   (=
+                     &(llm-json-str &tc-json &[@"function" @"name"])
+                     "get_weather")))
              _ false)))
     "llm-tool-calls-to-json serializes tool calls to OpenAI format")
 
@@ -885,32 +888,30 @@
 
   (assert-true test
     (let [line "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"]
-      (match (OpenAI.parse-delta &line)
-        (Maybe.Just tok) (= &tok "hello")
-        _ false))
+      (match (OpenAI.parse-delta line) (Maybe.Just tok) (= &tok "hello") _ false))
     "OpenAI parse-delta returns regular content without SOH")
 
   (assert-true test
     (let [line "data: {\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}"]
-      (match (OpenAI.parse-delta &line)
+      (match (OpenAI.parse-delta line)
         (Maybe.Just tok)
-          (and (= (Char.to-int (String.char-at &tok 0)) 1)
-               (= &(String.suffix &tok 1) "thinking"))
+          (and
+            (= (Char.to-int (String.char-at &tok 0)) 1)
+            (= &(String.suffix &tok 1) "thinking"))
         _ false))
     "OpenAI parse-delta prefixes reasoning tokens with SOH byte")
 
   (assert-true test
     (let [line "{\"message\":{\"content\":\"hello\"},\"done\":false}"]
-      (match (Ollama.parse-delta &line)
-        (Maybe.Just tok) (= &tok "hello")
-        _ false))
+      (match (Ollama.parse-delta line) (Maybe.Just tok) (= &tok "hello") _ false))
     "Ollama parse-delta returns regular content without SOH")
 
   (assert-true test
     (let [line "{\"message\":{\"thinking\":\"hmm\"},\"done\":false}"]
-      (match (Ollama.parse-delta &line)
+      (match (Ollama.parse-delta line)
         (Maybe.Just tok)
-          (and (= (Char.to-int (String.char-at &tok 0)) 1)
-               (= &(String.suffix &tok 1) "hmm"))
+          (and
+            (= (Char.to-int (String.char-at &tok 0)) 1)
+            (= &(String.suffix &tok 1) "hmm"))
         _ false))
     "Ollama parse-delta prefixes thinking tokens with SOH byte"))

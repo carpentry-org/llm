@@ -214,7 +214,7 @@ array of content parts (OpenAI format).")
                                          (JSON.Str @(Message.tool-call-id m))))
             base)
           with-calls (llm-append-tool-calls-entry with-tool-id
-                                                   (Message.tool-calls m))]
+                                                  (Message.tool-calls m))]
       (JSON.obj with-calls))))
 
 ; ===========================================================================
@@ -262,26 +262,26 @@ of objects using the OpenAI wire format.")
 (defn llm-messages-to-json [msgs]
   (JSON.Arr (Array.copy-map &(fn [m] (Box.init (Message.to-json m))) msgs)))
 
+(doc llm-tool-call-to-json "serializes a single `ToolCall` to a boxed JSON
+object in the OpenAI function-call wire format. Arguments are re-parsed from
+their string form; if parsing fails, the raw string is used.")
+(defn llm-tool-call-to-json [tc]
+  (let [args-json (match (JSON.parse (ToolCall.arguments tc))
+          (Result.Success j) j
+          _ (JSON.Str @(ToolCall.arguments tc)))]
+    (Box.init
+      (JSON.obj
+        [(JSON.entry @"id" (JSON.Str @(ToolCall.id tc)))
+         (JSON.entry @"type" (JSON.Str @"function"))
+         (JSON.entry @"function"
+                     (JSON.obj
+                       [(JSON.entry @"name" (JSON.Str @(ToolCall.name tc)))
+                        (JSON.entry @"arguments" args-json)]))]))))
+
 (doc llm-tool-calls-to-json "serializes an array of `ToolCall`s to a
-`JSON.Arr` in the OpenAI function-call wire format. Arguments are re-parsed
-from their string form; if parsing fails, the raw string is used.")
+`JSON.Arr` in the OpenAI function-call wire format.")
 (defn llm-tool-calls-to-json [tcs]
-  (JSON.Arr
-    (Array.copy-map
-      &(fn [tc]
-        (let [args-json (match (JSON.parse (ToolCall.arguments tc))
-                (Result.Success j) j
-                _ (JSON.Str @(ToolCall.arguments tc)))]
-          (Box.init
-            (JSON.obj
-              [(JSON.entry @"id" (JSON.Str @(ToolCall.id tc)))
-               (JSON.entry @"type" (JSON.Str @"function"))
-               (JSON.entry @"function"
-                           (JSON.obj
-                             [(JSON.entry @"name"
-                                          (JSON.Str @(ToolCall.name tc)))
-                              (JSON.entry @"arguments" args-json)]))]))))
-      tcs)))
+  (JSON.Arr (Array.copy-map &llm-tool-call-to-json tcs)))
 
 (doc llm-append-tool-calls-entry "appends a `\"tool_calls\"` JSON entry to the
 given entries array if the message has tool calls. Returns the array unchanged
@@ -325,7 +325,7 @@ and `image` blocks using Anthropic's base64 source format.")
                                        (JSON.Str @(Message.tool-call-id m))))
           base)
         with-calls (llm-append-tool-calls-entry with-tool-id
-                                                 (Message.tool-calls m))]
+                                                (Message.tool-calls m))]
     (JSON.obj with-calls)))
 
 (doc llm-message-to-ollama-json "serializes a `Message` to the Ollama wire
@@ -349,7 +349,7 @@ at the message level (content stays a string).")
                                        (JSON.Str @(Message.tool-call-id m))))
           with-images)
         with-calls (llm-append-tool-calls-entry with-tool-id
-                                                 (Message.tool-calls m))]
+                                                (Message.tool-calls m))]
     (JSON.obj with-calls)))
 
 (doc llm-filter-non-system "returns only the non-system messages from the
