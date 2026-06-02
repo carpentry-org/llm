@@ -213,30 +213,8 @@ array of content parts (OpenAI format).")
                              (JSON.entry @"tool_call_id"
                                          (JSON.Str @(Message.tool-call-id m))))
             base)
-          with-calls (if (> (Array.length (Message.tool-calls m)) 0)
-            (Array.push-back with-tool-id
-                             (JSON.entry @"tool_calls"
-                                         (JSON.Arr
-                                           (Array.copy-map
-                                             &(fn [tc]
-                                               (let [args-json (match (JSON.parse (ToolCall.arguments tc))
-                                                       (Result.Success j) j
-                                                       _
-                                                         (JSON.Str @(ToolCall.arguments tc)))]
-                                                 (Box.init
-                                                   (JSON.obj
-                                                     [(JSON.entry @"id"
-                                                                  (JSON.Str @(ToolCall.id tc)))
-                                                      (JSON.entry @"type"
-                                                                  (JSON.Str @"function"))
-                                                      (JSON.entry @"function"
-                                                                  (JSON.obj
-                                                                    [(JSON.entry @"name"
-                                                                                 (JSON.Str @(ToolCall.name tc)))
-                                                                     (JSON.entry @"arguments"
-                                                                                 args-json)]))]))))
-                                             (Message.tool-calls m)))))
-            with-tool-id)]
+          with-calls (llm-append-tool-calls-entry with-tool-id
+                                                   (Message.tool-calls m))]
       (JSON.obj with-calls))))
 
 ; ===========================================================================
@@ -284,6 +262,36 @@ of objects using the OpenAI wire format.")
 (defn llm-messages-to-json [msgs]
   (JSON.Arr (Array.copy-map &(fn [m] (Box.init (Message.to-json m))) msgs)))
 
+(doc llm-tool-calls-to-json "serializes an array of `ToolCall`s to a
+`JSON.Arr` in the OpenAI function-call wire format. Arguments are re-parsed
+from their string form; if parsing fails, the raw string is used.")
+(defn llm-tool-calls-to-json [tcs]
+  (JSON.Arr
+    (Array.copy-map
+      &(fn [tc]
+        (let [args-json (match (JSON.parse (ToolCall.arguments tc))
+                (Result.Success j) j
+                _ (JSON.Str @(ToolCall.arguments tc)))]
+          (Box.init
+            (JSON.obj
+              [(JSON.entry @"id" (JSON.Str @(ToolCall.id tc)))
+               (JSON.entry @"type" (JSON.Str @"function"))
+               (JSON.entry @"function"
+                           (JSON.obj
+                             [(JSON.entry @"name"
+                                          (JSON.Str @(ToolCall.name tc)))
+                              (JSON.entry @"arguments" args-json)]))]))))
+      tcs)))
+
+(doc llm-append-tool-calls-entry "appends a `\"tool_calls\"` JSON entry to the
+given entries array if the message has tool calls. Returns the array unchanged
+otherwise.")
+(defn llm-append-tool-calls-entry [entries tcs]
+  (if (> (Array.length tcs) 0)
+    (Array.push-back entries
+                     (JSON.entry @"tool_calls" (llm-tool-calls-to-json tcs)))
+    entries))
+
 (doc llm-message-to-anthropic-json "serializes a `Message` to the Anthropic
 wire format. When images are present, content becomes an array with `text`
 and `image` blocks using Anthropic's base64 source format.")
@@ -316,30 +324,8 @@ and `image` blocks using Anthropic's base64 source format.")
                            (JSON.entry @"tool_call_id"
                                        (JSON.Str @(Message.tool-call-id m))))
           base)
-        with-calls (if (> (Array.length (Message.tool-calls m)) 0)
-          (Array.push-back with-tool-id
-                           (JSON.entry @"tool_calls"
-                                       (JSON.Arr
-                                         (Array.copy-map
-                                           &(fn [tc]
-                                             (let [args-json (match (JSON.parse (ToolCall.arguments tc))
-                                                     (Result.Success j) j
-                                                     _
-                                                       (JSON.Str @(ToolCall.arguments tc)))]
-                                               (Box.init
-                                                 (JSON.obj
-                                                   [(JSON.entry @"id"
-                                                                (JSON.Str @(ToolCall.id tc)))
-                                                    (JSON.entry @"type"
-                                                                (JSON.Str @"function"))
-                                                    (JSON.entry @"function"
-                                                                (JSON.obj
-                                                                  [(JSON.entry @"name"
-                                                                               (JSON.Str @(ToolCall.name tc)))
-                                                                   (JSON.entry @"arguments"
-                                                                               args-json)]))]))))
-                                           (Message.tool-calls m)))))
-          with-tool-id)]
+        with-calls (llm-append-tool-calls-entry with-tool-id
+                                                 (Message.tool-calls m))]
     (JSON.obj with-calls)))
 
 (doc llm-message-to-ollama-json "serializes a `Message` to the Ollama wire
@@ -362,30 +348,8 @@ at the message level (content stays a string).")
                            (JSON.entry @"tool_call_id"
                                        (JSON.Str @(Message.tool-call-id m))))
           with-images)
-        with-calls (if (> (Array.length (Message.tool-calls m)) 0)
-          (Array.push-back with-tool-id
-                           (JSON.entry @"tool_calls"
-                                       (JSON.Arr
-                                         (Array.copy-map
-                                           &(fn [tc]
-                                             (let [args-json (match (JSON.parse (ToolCall.arguments tc))
-                                                     (Result.Success j) j
-                                                     _
-                                                       (JSON.Str @(ToolCall.arguments tc)))]
-                                               (Box.init
-                                                 (JSON.obj
-                                                   [(JSON.entry @"id"
-                                                                (JSON.Str @(ToolCall.id tc)))
-                                                    (JSON.entry @"type"
-                                                                (JSON.Str @"function"))
-                                                    (JSON.entry @"function"
-                                                                (JSON.obj
-                                                                  [(JSON.entry @"name"
-                                                                               (JSON.Str @(ToolCall.name tc)))
-                                                                   (JSON.entry @"arguments"
-                                                                               args-json)]))]))))
-                                           (Message.tool-calls m)))))
-          with-tool-id)]
+        with-calls (llm-append-tool-calls-entry with-tool-id
+                                                 (Message.tool-calls m))]
     (JSON.obj with-calls)))
 
 (doc llm-filter-non-system "returns only the non-system messages from the
@@ -594,7 +558,7 @@ so callers can distinguish them from regular content tokens.")
                           (let [think (llm-json-str &choice
                                                     &[@"delta" @"reasoning"])]
                             (if (> (String.length &think) 0)
-                              (Maybe.Just (String.concat &[@"" think]))
+                              (Maybe.Just (String.concat &[@"\x01" think]))
                               (Maybe.Nothing)))))
                     _ (Maybe.Nothing))
                 _ (Maybe.Nothing))
@@ -836,7 +800,7 @@ them from regular content tokens.")
                   (Maybe.Just tok)
                   (let [think (llm-json-str &j &[@"message" @"thinking"])]
                     (if (> (String.length &think) 0)
-                      (Maybe.Just (String.concat &[@"" think]))
+                      (Maybe.Just (String.concat &[@"\x01" think]))
                       (Maybe.Nothing))))))
           _ (Maybe.Nothing))
       _ (Maybe.Nothing))))

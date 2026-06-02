@@ -824,4 +824,93 @@
                 _ false)
             _ false)
         _ false))
-    "Multiple images produce text + N image parts (OpenAI)"))
+    "Multiple images produce text + N image parts (OpenAI)")
+
+  ; =========================================================================
+  ; llm-tool-calls-to-json helper
+  ; =========================================================================
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"tc1" @"get_weather" @"{\"city\":\"Paris\"}")]
+          j (llm-tool-calls-to-json &tcs)]
+      (and (JSON.arr? &j)
+           (match (JSON.nth &j 0)
+             (Maybe.Just tc-json)
+               (and (= &(llm-json-str &tc-json &[@"id"]) "tc1")
+                    (and (= &(llm-json-str &tc-json &[@"type"]) "function")
+                         (= &(llm-json-str &tc-json &[@"function" @"name"])
+                            "get_weather")))
+             _ false)))
+    "llm-tool-calls-to-json serializes tool calls to OpenAI format")
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"tc1" @"f" @"not-json")]
+          j (llm-tool-calls-to-json &tcs)]
+      (match (JSON.nth &j 0)
+        (Maybe.Just tc-json)
+          (= &(llm-json-str &tc-json &[@"function" @"arguments"]) "not-json")
+        _ false))
+    "llm-tool-calls-to-json falls back to string for invalid JSON arguments")
+
+  (assert-true test
+    (let [entries [(JSON.entry @"role" (JSON.Str @"assistant"))]
+          result (llm-append-tool-calls-entry entries &[])]
+      (= (Array.length &result) 1))
+    "llm-append-tool-calls-entry returns entries unchanged for empty tool calls")
+
+  ; =========================================================================
+  ; Message.to-json tool-call serialization (via helper)
+  ; =========================================================================
+
+  (assert-true test
+    (let [m (Message.init (Role.Assistant)
+                          @""
+                          [(ToolCall.init @"tc1" @"search" @"{\"q\":\"hi\"}")]
+                          @""
+                          [])
+          j (Message.to-json &m)]
+      (match (JSON.get &j "tool_calls")
+        (Maybe.Just arr)
+          (match (JSON.nth &arr 0)
+            (Maybe.Just tc)
+              (and (= &(llm-json-str &tc &[@"id"]) "tc1")
+                   (= &(llm-json-str &tc &[@"function" @"name"]) "search"))
+            _ false)
+        _ false))
+    "Message.to-json serializes tool calls via shared helper")
+
+  ; =========================================================================
+  ; Streaming parse-delta: SOH prefix on thinking tokens
+  ; =========================================================================
+
+  (assert-true test
+    (let [line "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"]
+      (match (OpenAI.parse-delta &line)
+        (Maybe.Just tok) (= &tok "hello")
+        _ false))
+    "OpenAI parse-delta returns regular content without SOH")
+
+  (assert-true test
+    (let [line "data: {\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}"]
+      (match (OpenAI.parse-delta &line)
+        (Maybe.Just tok)
+          (and (= (Char.to-int (String.char-at &tok 0)) 1)
+               (= &(String.suffix &tok 1) "thinking"))
+        _ false))
+    "OpenAI parse-delta prefixes reasoning tokens with SOH byte")
+
+  (assert-true test
+    (let [line "{\"message\":{\"content\":\"hello\"},\"done\":false}"]
+      (match (Ollama.parse-delta &line)
+        (Maybe.Just tok) (= &tok "hello")
+        _ false))
+    "Ollama parse-delta returns regular content without SOH")
+
+  (assert-true test
+    (let [line "{\"message\":{\"thinking\":\"hmm\"},\"done\":false}"]
+      (match (Ollama.parse-delta &line)
+        (Maybe.Just tok)
+          (and (= (Char.to-int (String.char-at &tok 0)) 1)
+               (= &(String.suffix &tok 1) "hmm"))
+        _ false))
+    "Ollama parse-delta prefixes thinking tokens with SOH byte"))
