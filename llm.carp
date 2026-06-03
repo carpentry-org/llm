@@ -66,6 +66,11 @@ directly.")
   "format-mode for responses constrained to a JSON schema.")
 (def format-json-schema 2)
 
+(doc soh-prefix "returns a SOH (0x01) byte string used to tag thinking/reasoning
+tokens in streaming responses, so callers can distinguish them from content
+tokens.")
+(defn soh-prefix [] (String.from-chars &[(Char.from-int 1)]))
+
 (doc LLMRequest "a chat request to an LLM provider.
 
 Build with `LLM.chat-request`, `LLM.chat-request-with-tools`,
@@ -558,7 +563,7 @@ so callers can distinguish them from regular content tokens.")
                           (let [think (llm-json-str &choice
                                                     &[@"delta" @"reasoning"])]
                             (if (> (String.length &think) 0)
-                              (Maybe.Just (String.concat &[@"\x01" think]))
+                              (Maybe.Just (String.concat &[(soh-prefix) think]))
                               (Maybe.Nothing)))))
                     _ (Maybe.Nothing))
                 _ (Maybe.Nothing))
@@ -800,7 +805,7 @@ them from regular content tokens.")
                   (Maybe.Just tok)
                   (let [think (llm-json-str &j &[@"message" @"thinking"])]
                     (if (> (String.length &think) 0)
-                      (Maybe.Just (String.concat &[@"\x01" think]))
+                      (Maybe.Just (String.concat &[(soh-prefix) think]))
                       (Maybe.Nothing))))))
           _ (Maybe.Nothing))
       _ (Maybe.Nothing))))
