@@ -85,6 +85,27 @@ tool call message and a tool result:
   (LLM.chat &config &req2))
 ```
 
+### Agentic tool-use loop
+
+`LLM.chat-loop` handles the full call-handle-respond cycle automatically:
+
+```clojure
+(let [config (LLM.ollama "http://localhost:11434")
+      tools [(ToolDef.init @"get_weather" @"Get weather" schema)]
+      msgs [(Message.user "Weather in Paris?")]
+      handler (fn [tc]
+                (if (= (ToolCall.name tc) "get_weather")
+                  @"22C, sunny"
+                  @"unknown tool"))]
+  (match (LLM.chat-loop &config "llama3" msgs 256 0.7 &tools handler 10)
+    (Result.Success r) (println* (LLMResponse.content &r))
+    (Result.Error e) (IO.errorln &(LLMError.str &e))))
+```
+
+The handler receives each `ToolCall` by reference and returns the result as a
+`String`. The loop repeats until the model stops calling tools or the iteration
+limit is reached.
+
 ### JSON output
 
 ```clojure
@@ -124,6 +145,7 @@ their native JSON mode.
 | Function | Purpose |
 |----------|---------|
 | `LLM.chat config req` | Synchronous chat. Returns `(Result LLMResponse LLMError)` |
+| `LLM.chat-loop config model msgs max-tokens temp tools handler max-iters` | Agentic tool-use loop. Calls `chat`, invokes `handler` per tool call, repeats until done or limit reached |
 | `LLM.chat-stream config req` | Streaming chat. Returns `(Result LlmStream LLMError)` |
 | `LlmStream.poll stream` | Returns `(Maybe String)` — next token, or `Nothing` when done |
 | `LlmStream.close stream` | Close the underlying connection |
@@ -160,7 +182,7 @@ build/parse functions translate.
 carp -x test/llm.carp
 ```
 
-The unit tests don't make network calls (44 tests, JSON build/parse logic). For
+The unit tests don't make network calls (68 tests, JSON build/parse logic). For
 live tests against real APIs, see `examples/anthropic.carp`,
 `examples/openai.carp`, `examples/ollama.carp`, `examples/gemini.carp` and
 their `_stream`, `_tool`, `_json` variants. Most require an API key in the

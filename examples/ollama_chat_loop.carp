@@ -1,0 +1,37 @@
+(load "../llm.carp")
+
+(defn make-schema []
+  (JSON.obj [(JSON.entry @"type" (JSON.Str @"object"))
+             (JSON.entry @"properties"
+               (JSON.obj [(JSON.entry @"city"
+                 (JSON.obj [(JSON.entry @"type" (JSON.Str @"string"))]))]))
+             (JSON.entry @"required"
+                         (JSON.Arr [(Box.init (JSON.Str @"city"))]))]))
+
+(defn handle-tool [tc]
+  (if (= (ToolCall.name tc) "get_weather")
+    (match (JSON.parse (ToolCall.arguments tc))
+      (Result.Success j)
+        (let [city (llm-json-str &j &[@"city"])]
+          (String.concat &[@"Weather in " city @": 22C, sunny"]))
+      _ @"error parsing arguments")
+    (String.concat &[@"unknown tool: " @(ToolCall.name tc)])))
+
+(defn main []
+  (let [config (LLM.ollama "http://localhost:11434")
+        tools [(ToolDef.init @"get_weather"
+                             @"Get current weather for a city"
+                             (make-schema))]
+        msgs [(Message.user "What is the weather in Paris?")]]
+    (match (LLM.chat-loop &config
+                           "llama3"
+                           msgs
+                           256
+                           0.0
+                           &tools
+                           handle-tool
+                           5)
+      (Result.Success r)
+        (IO.println &(String.concat &[@"Response: "
+                                       @(LLMResponse.content &r)]))
+      (Result.Error e) (IO.errorln &(LLMError.str &e)))))

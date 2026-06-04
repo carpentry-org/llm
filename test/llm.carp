@@ -914,4 +914,56 @@
             (= (Char.to-int (String.char-at &tok 0)) 1)
             (= &(String.suffix &tok 1) "hmm"))
         _ false))
-    "Ollama parse-delta prefixes thinking tokens with SOH byte"))
+    "Ollama parse-delta prefixes thinking tokens with SOH byte")
+
+  ; =========================================================================
+  ; LLM.chat-loop
+  ; =========================================================================
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
+          tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+          handler (fn [tc] @"result")]
+      (match (LLM.chat-loop &config
+                            "m"
+                            [(Message.user "hi")]
+                            10
+                            0.5
+                            &tools
+                            handler
+                            5)
+        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        _ false))
+    "LLM.chat-loop returns Transport error on connection failure")
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
+          tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+          handler (fn [tc] @"result")]
+      (match (LLM.chat-loop &config
+                            "m"
+                            [(Message.user "hi")]
+                            10
+                            0.5
+                            &tools
+                            handler
+                            0)
+        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        _ false))
+    "LLM.chat-loop with max-iters 0 still chats once")
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"bogus" @"http://x" @"" @"")
+          tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+          handler (fn [tc] @"result")]
+      (match (LLM.chat-loop &config
+                            "m"
+                            [(Message.user "hi")]
+                            10
+                            0.5
+                            &tools
+                            handler
+                            5)
+        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        _ false))
+    "LLM.chat-loop returns Transport error for unknown provider"))
