@@ -1155,4 +1155,233 @@
                             5)
         (Result.Error err) (match err (LLMError.Transport _) true _ false)
         _ false))
-    "LLM.chat-loop returns Transport error for unknown provider"))
+    "LLM.chat-loop returns Transport error for unknown provider")
+
+  ; =========================================================================
+  ; Embedding types
+  ; =========================================================================
+
+  (assert-equal test
+    "text-embedding-3-small"
+    (EmbeddingRequest.model
+      &(LLM.embedding-request "text-embedding-3-small" [@"hello"]))
+    "LLM.embedding-request preserves model")
+
+  (assert-equal test
+    1
+    (Array.length
+      (EmbeddingRequest.input &(LLM.embedding-request "m" [@"hello"])))
+    "LLM.embedding-request preserves input")
+
+  ; =========================================================================
+  ; OpenAI embedding serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.embedding-request "text-embedding-3-small"
+                                     [@"hello" @"world"])
+          body (OpenAI.build-embedding-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and
+            (= &(llm-json-str &j &[@"model"]) "text-embedding-3-small")
+            (match (JSON.get &j "input")
+              (Maybe.Just arr)
+                (and (JSON.arr? &arr)
+                     (match (JSON.nth &arr 0)
+                       (Maybe.Just v)
+                         (= &(Maybe.from (JSON.as-str &v) @"") "hello")
+                       _ false))
+              _ false))
+        _ false))
+    "OpenAI.build-embedding-request produces valid JSON with model and input")
+
+  (assert-true test
+    (let [req (LLM.embedding-request "m" [@"a" @"b"])
+          body (OpenAI.build-embedding-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "input")
+            (Maybe.Just arr)
+              (match (JSON.as-arr &arr)
+                (Maybe.Just boxes) (= (Array.length &boxes) 2)
+                _ false)
+            _ false)
+        _ false))
+    "OpenAI.build-embedding-request includes all input strings")
+
+  ; =========================================================================
+  ; OpenAI embedding response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"data\":[{\"embedding\":[0.1,0.2,0.3],\"index\":0}],\"usage\":{\"total_tokens\":5}}"]
+      (match (OpenAI.parse-embedding-response body)
+        (Result.Success r)
+          (and
+            (= (Array.length (EmbeddingResponse.embeddings &r)) 1)
+            (and
+              (=
+                (Array.length
+                  (Array.unsafe-nth (EmbeddingResponse.embeddings &r) 0))
+                3)
+              (= @(EmbeddingResponse.total-tokens &r) 5)))
+        _ false))
+    "OpenAI.parse-embedding-response extracts embeddings and token count")
+
+  (assert-true test
+    (let [body "{\"data\":[{\"embedding\":[0.1],\"index\":0},{\"embedding\":[0.2],\"index\":1}],\"usage\":{\"total_tokens\":4}}"]
+      (match (OpenAI.parse-embedding-response body)
+        (Result.Success r)
+          (= (Array.length (EmbeddingResponse.embeddings &r)) 2)
+        _ false))
+    "OpenAI.parse-embedding-response handles multiple embeddings")
+
+  ; =========================================================================
+  ; Ollama embedding serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.embedding-request "all-minilm" [@"test"])
+          body (Ollama.build-embedding-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and
+            (= &(llm-json-str &j &[@"model"]) "all-minilm")
+            (match (JSON.get &j "input")
+              (Maybe.Just arr) (JSON.arr? &arr)
+              _ false))
+        _ false))
+    "Ollama.build-embedding-request produces valid JSON with model and input")
+
+  ; =========================================================================
+  ; Ollama embedding response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"model\":\"all-minilm\",\"embeddings\":[[0.1,0.2],[0.3,0.4]]}"]
+      (match (Ollama.parse-embedding-response body)
+        (Result.Success r)
+          (and
+            (= (Array.length (EmbeddingResponse.embeddings &r)) 2)
+            (= @(EmbeddingResponse.total-tokens &r) 0))
+        _ false))
+    "Ollama.parse-embedding-response extracts embeddings with zero token count")
+
+  ; =========================================================================
+  ; Gemini embedding serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.embedding-request "text-embedding-004" [@"hello"])
+          body (Gemini.build-embedding-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "requests")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 0)
+                (Maybe.Just r)
+                  (and
+                    (= &(llm-json-str &r &[@"model"])
+                       "models/text-embedding-004")
+                    (= &(llm-json-str &r &[@"content" @"parts"]) ""))
+                _ false)
+            _ false)
+        _ false))
+    "Gemini.build-embedding-request wraps input in batchEmbedContents format")
+
+  (assert-true test
+    (let [req (LLM.embedding-request "m" [@"a" @"b"])
+          body (Gemini.build-embedding-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "requests")
+            (Maybe.Just arr)
+              (match (JSON.as-arr &arr)
+                (Maybe.Just boxes) (= (Array.length &boxes) 2)
+                _ false)
+            _ false)
+        _ false))
+    "Gemini.build-embedding-request creates one request per input string")
+
+  ; =========================================================================
+  ; Gemini embedding response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"embeddings\":[{\"values\":[0.5,0.6]},{\"values\":[0.7,0.8]}]}"]
+      (match (Gemini.parse-embedding-response body)
+        (Result.Success r)
+          (and
+            (= (Array.length (EmbeddingResponse.embeddings &r)) 2)
+            (=
+              (Array.length
+                (Array.unsafe-nth (EmbeddingResponse.embeddings &r) 0))
+              2))
+        _ false))
+    "Gemini.parse-embedding-response extracts embedding values")
+
+  ; =========================================================================
+  ; llm-json-doubles helper
+  ; =========================================================================
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 1.0)) (Box.init (JSON.Num 2.5))])
+          result (llm-json-doubles &j)]
+      (and (= (Array.length &result) 2) (= @(Array.unsafe-nth &result 0) 1.0)))
+    "llm-json-doubles parses array of numbers")
+
+  (assert-equal test
+    0
+    (Array.length &(llm-json-doubles &(JSON.Str @"not an array")))
+    "llm-json-doubles returns empty array for non-array input")
+
+  ; =========================================================================
+  ; Embedding provider support
+  ; =========================================================================
+
+  (assert-true test
+    (let [config (LLM.anthropic "sk-test")
+          req (LLM.embedding-request "m" [@"hi"])]
+      (match (LLM.embed &config &req)
+        (Result.Error err)
+          (match err
+            (LLMError.Transport msg)
+              (String.contains-string? &msg "does not support embeddings")
+            _ false)
+        _ false))
+    "LLM.embed returns Transport error for Anthropic (no embeddings)")
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"bogus" @"http://x" @"" @"")
+          req (LLM.embedding-request "m" [@"hi"])]
+      (match (LLM.embed &config &req)
+        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        _ false))
+    "LLM.embed returns Transport error for unknown provider")
+
+  ; =========================================================================
+  ; Embedding transport error on connection failure
+  ; =========================================================================
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
+          req (LLM.embedding-request "m" [@"hi"])]
+      (match (LLM.embed &config &req)
+        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        _ false))
+    "LLM.embed returns Transport error on connection failure")
+
+  ; =========================================================================
+  ; llm-embedding-provider? helper
+  ; =========================================================================
+
+  (assert-true test
+    (and (llm-embedding-provider? "openai")
+         (and (llm-embedding-provider? "ollama")
+              (llm-embedding-provider? "gemini")))
+    "llm-embedding-provider? returns true for supported providers")
+
+  (assert-true test
+    (not (llm-embedding-provider? "anthropic"))
+    "llm-embedding-provider? returns false for anthropic"))
