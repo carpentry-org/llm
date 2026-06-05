@@ -182,7 +182,7 @@ build/parse functions translate.
 carp -x test/llm.carp
 ```
 
-The unit tests don't make network calls (68 tests, JSON build/parse logic). For
+The unit tests don't make network calls. For
 live tests against real APIs, see `examples/anthropic.carp`,
 `examples/openai.carp`, `examples/ollama.carp`, `examples/gemini.carp` and
 their `_stream`, `_tool`, `_json` variants. Most require an API key in the
