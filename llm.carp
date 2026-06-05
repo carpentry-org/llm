@@ -1293,3 +1293,96 @@ the HTTP status code before returning the stream.")
                   (ResponseStream.close rs)
                   (llm-api-error sc @"stream_error" @"")))
             (Result.Error e) (llm-transport-error e)))))))
+
+; ===========================================================================
+; Agentic tool-use loop — helpers
+; ===========================================================================
+
+(doc llm-loop-should-continue? "returns `true` if the tool-use loop should
+perform another iteration: the response contains at least one tool call and
+the current iteration index is below `max-iters`.")
+(defn llm-loop-should-continue? [response iter max-iters]
+  (and (> (Array.length (LLMResponse.tool-calls response)) 0) (< iter max-iters)))
+
+(doc llm-collect-tool-results "invokes `handler` for each tool call in `tcs`
+and returns an array of tool-result `Message`s, one per call, preserving
+order. Each result message carries the tool-call ID from the corresponding
+`ToolCall`.")
+(defn llm-collect-tool-results [tcs handler]
+  (let-do [results (the (Array Message) [])]
+    (for [j 0 (Array.length tcs)]
+      (let [tc (Array.unsafe-nth tcs j)
+            res (~handler tc)]
+        (set! results
+              (Array.push-back results
+                               (Message.tool-result (ToolCall.id tc) &res)))))
+    results))
+
+(doc llm-apply-loop-step "performs one iteration of the tool-use loop on the
+message array: appends an assistant message (built from `response`) followed
+by one tool-result message per tool call (produced by `handler`). Returns the
+updated message array.")
+(defn llm-apply-loop-step [msgs response handler]
+  (let [asst-msg (Message.from-response response)
+        tool-msgs (llm-collect-tool-results (LLMResponse.tool-calls response)
+                                            handler)]
+    (Array.concat &[(Array.push-back msgs asst-msg) tool-msgs])))
+
+; ===========================================================================
+; Agentic tool-use loop
+; ===========================================================================
+
+(defmodule LLM
+  (doc chat-loop "runs an agentic tool-use loop. Calls `chat` with the given
+tools, invokes `handler` for each tool call in the response, appends tool
+results to the conversation, and repeats until the model stops calling tools
+or `max-iters` iterations are reached.
+
+The handler receives a `(Ref ToolCall)` and returns the tool result as a
+`String`.
+
+Returns the final `(Result LLMResponse LLMError)`. If the iteration limit is
+reached, the last response is returned (it may still contain tool calls).
+
+```
+(let [config (LLM.ollama \"http://localhost:11434\")
+      tools [(ToolDef.init @\"get_weather\" @\"Get weather\" schema)]
+      msgs [(Message.user \"Weather in Paris?\")]
+      handler (fn [tc]
+                (if (= (ToolCall.name tc) \"get_weather\")
+                  @\"22C, sunny\"
+                  @\"unknown tool\"))]
+  (match (LLM.chat-loop &config \"llama3\" msgs 256 0.7 &tools handler 10)
+    (Result.Success r) (println* (LLMResponse.content &r))
+    (Result.Error e) (IO.errorln &(LLMError.str &e))))
+```")
+  (defn chat-loop [config
+                   model
+                   messages
+                   max-tokens
+                   temperature
+                   tools
+                   handler
+                   max-iters]
+    (let-do [msgs messages
+             result (the (Result LLMResponse LLMError)
+                         (Result.Error (LLMError.Transport @"")))
+             done false
+             i 0]
+      (while (not done)
+        (let [req (LLM.chat-request-with-tools model
+                                               @&msgs
+                                               max-tokens
+                                               temperature
+                                               @tools)]
+          (match (LLM.chat config &req)
+            (Result.Error e)
+              (do (set! result (Result.Error e)) (set! done true))
+            (Result.Success r)
+              (if (not (llm-loop-should-continue? &r i max-iters))
+                (do (set! result (Result.Success r)) (set! done true))
+                (do
+                  (set! msgs (llm-apply-loop-step msgs &r &handler))
+                  (set! result (Result.Success r))
+                  (set! i (inc i)))))))
+      result)))

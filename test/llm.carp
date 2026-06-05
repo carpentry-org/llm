@@ -914,4 +914,245 @@
             (= (Char.to-int (String.char-at &tok 0)) 1)
             (= &(String.suffix &tok 1) "hmm"))
         _ false))
-    "Ollama parse-delta prefixes thinking tokens with SOH byte"))
+    "Ollama parse-delta prefixes thinking tokens with SOH byte")
+
+  ; =========================================================================
+  ; llm-loop-should-continue? — iteration control
+  ; =========================================================================
+
+  (assert-true test
+    (not
+      (let [r (LLMResponse.init @"done" @"stop" 5 3 [])]
+        (llm-loop-should-continue? &r 0 10)))
+    "llm-loop-should-continue? returns false with no tool calls")
+
+  (assert-true test
+    (let [r (LLMResponse.init @""
+                              @"tool_calls"
+                              5
+                              3
+                              [(ToolCall.init @"tc1" @"f" @"{}")])]
+      (llm-loop-should-continue? &r 0 10))
+    "llm-loop-should-continue? returns true with tool calls within limit")
+
+  (assert-true test
+    (not
+      (let [r (LLMResponse.init @""
+                                @"tool_calls"
+                                5
+                                3
+                                [(ToolCall.init @"tc1" @"f" @"{}")])]
+        (llm-loop-should-continue? &r 5 5)))
+    "llm-loop-should-continue? returns false when iter equals max-iters")
+
+  (assert-true test
+    (not
+      (let [r (LLMResponse.init @""
+                                @"tool_calls"
+                                5
+                                3
+                                [(ToolCall.init @"tc1" @"f" @"{}")])]
+        (llm-loop-should-continue? &r 6 5)))
+    "llm-loop-should-continue? returns false when iter exceeds max-iters")
+
+  (assert-true test
+    (not
+      (let [r (LLMResponse.init @""
+                                @"tool_calls"
+                                5
+                                3
+                                [(ToolCall.init @"tc1" @"f" @"{}")])]
+        (llm-loop-should-continue? &r 0 0)))
+    "llm-loop-should-continue? returns false with max-iters 0")
+
+  (assert-true test
+    (let [r (LLMResponse.init @""
+                              @"tool_calls"
+                              5
+                              3
+                              [(ToolCall.init @"tc1" @"a" @"{}")
+                               (ToolCall.init @"tc2" @"b" @"{}")])]
+      (llm-loop-should-continue? &r 2 3))
+    "llm-loop-should-continue? returns true with multiple tool calls")
+
+  ; =========================================================================
+  ; llm-collect-tool-results — handler dispatch
+  ; =========================================================================
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"tc1" @"get_weather" @"{\"city\":\"Paris\"}")]
+          handler (fn [tc] @"sunny")
+          results (llm-collect-tool-results &tcs &handler)]
+      (and (= (Array.length &results) 1)
+           (and
+             (= (Message.tool-call-id (Array.unsafe-nth &results 0)) "tc1")
+             (= (Message.content (Array.unsafe-nth &results 0)) "sunny"))))
+    "llm-collect-tool-results produces correct message for single tool call")
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"tc1" @"get_weather" @"{}")
+               (ToolCall.init @"tc2" @"get_time" @"{}")]
+          handler (fn [tc]
+            (if (= (ToolCall.name tc) "get_weather") @"sunny" @"12:00"))
+          results (llm-collect-tool-results &tcs &handler)]
+      (and (= (Array.length &results) 2)
+           (and
+             (= (Message.content (Array.unsafe-nth &results 0)) "sunny")
+             (= (Message.content (Array.unsafe-nth &results 1)) "12:00"))))
+    "llm-collect-tool-results dispatches handler by tool name")
+
+  (assert-equal test
+    0
+    (let [tcs (the (Array ToolCall) [])
+          handler (fn [tc] @"x")
+          results (llm-collect-tool-results &tcs &handler)]
+      (Array.length &results))
+    "llm-collect-tool-results returns empty array for no tool calls")
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"tc1" @"f" @"{}")]
+          handler (fn [tc] @"ok")
+          results (llm-collect-tool-results &tcs &handler)]
+      (= &(Role.str (Message.role (Array.unsafe-nth &results 0))) "tool"))
+    "llm-collect-tool-results produces messages with Tool role")
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"call_abc" @"f" @"{}")]
+          handler (fn [tc] @"ok")
+          results (llm-collect-tool-results &tcs &handler)]
+      (= (Message.tool-call-id (Array.unsafe-nth &results 0)) "call_abc"))
+    "llm-collect-tool-results preserves tool-call IDs")
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"tc1" @"f" @"{\"x\":1}")]
+          handler (fn [tc] (String.concat &[@"got:" @(ToolCall.arguments tc)]))
+          results (llm-collect-tool-results &tcs &handler)]
+      (= (Message.content (Array.unsafe-nth &results 0)) "got:{\"x\":1}"))
+    "llm-collect-tool-results passes full ToolCall ref to handler")
+
+  ; =========================================================================
+  ; llm-apply-loop-step — message building
+  ; =========================================================================
+
+  (assert-true test
+    (let [msgs [(Message.user "hello")]
+          resp (LLMResponse.init @"I'll check"
+                                 @"tool_calls"
+                                 5
+                                 3
+                                 [(ToolCall.init @"tc1" @"get_weather" @"{}")])
+          handler (fn [tc] @"sunny")
+          result (llm-apply-loop-step msgs &resp &handler)]
+      (and (= (Array.length &result) 3)
+           (and
+             (= &(Role.str (Message.role (Array.unsafe-nth &result 0))) "user")
+             (and
+               (=
+                 &(Role.str (Message.role (Array.unsafe-nth &result 1)))
+                 "assistant")
+               (= &(Role.str (Message.role (Array.unsafe-nth &result 2))) "tool")))))
+    "llm-apply-loop-step appends assistant message and tool results")
+
+  (assert-true test
+    (let [msgs (the (Array Message) [])
+          resp (LLMResponse.init @"thinking..."
+                                 @"tool_calls"
+                                 5
+                                 3
+                                 [(ToolCall.init @"tc1" @"f" @"{}")])
+          handler (fn [tc] @"ok")
+          result (llm-apply-loop-step msgs &resp &handler)]
+      (= (Message.content (Array.unsafe-nth &result 0)) "thinking..."))
+    "llm-apply-loop-step preserves response content in assistant message")
+
+  (assert-true test
+    (let [msgs (the (Array Message) [])
+          resp (LLMResponse.init @""
+                                 @"tool_calls"
+                                 5
+                                 3
+                                 [(ToolCall.init @"tc1" @"f" @"{}")])
+          handler (fn [tc] @"ok")
+          result (llm-apply-loop-step msgs &resp &handler)]
+      (= (Array.length (Message.tool-calls (Array.unsafe-nth &result 0))) 1))
+    "llm-apply-loop-step preserves tool calls in assistant message for history")
+
+  (assert-true test
+    (let [msgs [(Message.user "do stuff")]
+          resp (LLMResponse.init @""
+                                 @"tool_calls"
+                                 5
+                                 3
+                                 [(ToolCall.init @"tc1" @"a" @"{}")
+                                  (ToolCall.init @"tc2" @"b" @"{}")])
+          handler (fn [tc] (if (= (ToolCall.name tc) "a") @"res-a" @"res-b"))
+          result (llm-apply-loop-step msgs &resp &handler)]
+      (and (= (Array.length &result) 4)
+           (and
+             (= (Message.content (Array.unsafe-nth &result 2)) "res-a")
+             (= (Message.content (Array.unsafe-nth &result 3)) "res-b"))))
+    "llm-apply-loop-step handles multiple tool calls in one step")
+
+  (assert-true test
+    (let [msgs (the (Array Message) [])
+          resp (LLMResponse.init @""
+                                 @"tool_calls"
+                                 5
+                                 3
+                                 [(ToolCall.init @"call_123" @"f" @"{}")])
+          handler (fn [tc] @"ok")
+          result (llm-apply-loop-step msgs &resp &handler)]
+      (= (Message.tool-call-id (Array.unsafe-nth &result 1)) "call_123"))
+    "llm-apply-loop-step preserves tool-call IDs in result messages")
+
+  ; =========================================================================
+  ; LLM.chat-loop — error paths
+  ; =========================================================================
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
+          tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+          handler (fn [tc] @"result")]
+      (match (LLM.chat-loop &config
+                            "m"
+                            [(Message.user "hi")]
+                            10
+                            0.5
+                            &tools
+                            handler
+                            5)
+        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        _ false))
+    "LLM.chat-loop returns Transport error on connection failure")
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
+          tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+          handler (fn [tc] @"result")]
+      (match (LLM.chat-loop &config
+                            "m"
+                            [(Message.user "hi")]
+                            10
+                            0.5
+                            &tools
+                            handler
+                            0)
+        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        _ false))
+    "LLM.chat-loop with max-iters 0 still chats once")
+
+  (assert-true test
+    (let [config (ProviderConfig.init @"bogus" @"http://x" @"" @"")
+          tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+          handler (fn [tc] @"result")]
+      (match (LLM.chat-loop &config
+                            "m"
+                            [(Message.user "hi")]
+                            10
+                            0.5
+                            &tools
+                            handler
+                            5)
+        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        _ false))
+    "LLM.chat-loop returns Transport error for unknown provider"))
