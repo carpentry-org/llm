@@ -1383,6 +1383,5 @@ reached, the last response is returned (it may still contain tool calls).
                 (do (set! result (Result.Success r)) (set! done true))
                 (do
                   (set! msgs (llm-apply-loop-step msgs &r &handler))
-                  (set! result (Result.Success r))
                   (set! i (inc i)))))))
       result)))
