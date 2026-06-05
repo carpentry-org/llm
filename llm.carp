@@ -1295,6 +1295,40 @@ the HTTP status code before returning the stream.")
             (Result.Error e) (llm-transport-error e)))))))
 
 ; ===========================================================================
+; Agentic tool-use loop — helpers
+; ===========================================================================
+
+(doc llm-loop-should-continue? "returns `true` if the tool-use loop should
+perform another iteration: the response contains at least one tool call and
+the current iteration index is below `max-iters`.")
+(defn llm-loop-should-continue? [response iter max-iters]
+  (and (> (Array.length (LLMResponse.tool-calls response)) 0) (< iter max-iters)))
+
+(doc llm-collect-tool-results "invokes `handler` for each tool call in `tcs`
+and returns an array of tool-result `Message`s, one per call, preserving
+order. Each result message carries the tool-call ID from the corresponding
+`ToolCall`.")
+(defn llm-collect-tool-results [tcs handler]
+  (let-do [results (the (Array Message) [])]
+    (for [j 0 (Array.length tcs)]
+      (let [tc (Array.unsafe-nth tcs j)
+            res (~handler tc)]
+        (set! results
+              (Array.push-back results
+                               (Message.tool-result (ToolCall.id tc) &res)))))
+    results))
+
+(doc llm-apply-loop-step "performs one iteration of the tool-use loop on the
+message array: appends an assistant message (built from `response`) followed
+by one tool-result message per tool call (produced by `handler`). Returns the
+updated message array.")
+(defn llm-apply-loop-step [msgs response handler]
+  (let [asst-msg (Message.from-response response)
+        tool-msgs (llm-collect-tool-results (LLMResponse.tool-calls response)
+                                            handler)]
+    (Array.concat &[(Array.push-back msgs asst-msg) tool-msgs])))
+
+; ===========================================================================
 ; Agentic tool-use loop
 ; ===========================================================================
 
@@ -1345,20 +1379,10 @@ reached, the last response is returned (it may still contain tool calls).
             (Result.Error e)
               (do (set! result (Result.Error e)) (set! done true))
             (Result.Success r)
-              (if (or
-                  (= (Array.length (LLMResponse.tool-calls &r)) 0)
-                  (>= i max-iters))
+              (if (not (llm-loop-should-continue? &r i max-iters))
                 (do (set! result (Result.Success r)) (set! done true))
-                (let-do [asst-msg (Message.from-response &r)
-                         tcs @(LLMResponse.tool-calls &r)]
+                (do
+                  (set! msgs (llm-apply-loop-step msgs &r &handler))
                   (set! result (Result.Success r))
-                  (set! msgs (Array.push-back msgs asst-msg))
-                  (for [j 0 (Array.length &tcs)]
-                    (let [tc (Array.unsafe-nth &tcs j)
-                          res (handler tc)]
-                      (set! msgs
-                            (Array.push-back msgs
-                                             (Message.tool-result (ToolCall.id tc)
-                                                                  &res)))))
                   (set! i (inc i)))))))
       result)))
