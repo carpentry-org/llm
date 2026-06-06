@@ -1384,4 +1384,75 @@
 
   (assert-true test
     (not (llm-embedding-provider? "anthropic"))
-    "llm-embedding-provider? returns false for anthropic"))
+    "llm-embedding-provider? returns false for anthropic")
+
+  ; =========================================================================
+  ; Embedding edge cases: empty input
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.embedding-request "m" [])
+          body (OpenAI.build-embedding-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "input")
+            (Maybe.Just arr)
+              (match (JSON.as-arr &arr)
+                (Maybe.Just boxes) (= (Array.length &boxes) 0)
+                _ false)
+            _ false)
+        _ false))
+    "OpenAI.build-embedding-request produces empty input array for empty input")
+
+  ; =========================================================================
+  ; Embedding edge cases: missing keys in response
+  ; =========================================================================
+
+  (assert-true test
+    (match (OpenAI.parse-embedding-response "{\"usage\":{\"total_tokens\":0}}")
+      (Result.Success r) (= (Array.length (EmbeddingResponse.embeddings &r)) 0)
+      _ false)
+    "OpenAI.parse-embedding-response returns empty embeddings when data key missing")
+
+  (assert-true test
+    (match (OpenAI.parse-embedding-response "{\"data\":[{\"index\":0}],\"usage\":{\"total_tokens\":1}}")
+      (Result.Success r)
+        (and (= (Array.length (EmbeddingResponse.embeddings &r)) 1)
+             (= (Array.length
+                  (Array.unsafe-nth (EmbeddingResponse.embeddings &r) 0)) 0))
+      _ false)
+    "OpenAI.parse-embedding-response returns empty vector when embedding key missing")
+
+  (assert-true test
+    (match (Ollama.parse-embedding-response "{\"model\":\"m\"}")
+      (Result.Success r) (= (Array.length (EmbeddingResponse.embeddings &r)) 0)
+      _ false)
+    "Ollama.parse-embedding-response returns empty embeddings when key missing")
+
+  (assert-true test
+    (match (Gemini.parse-embedding-response "{}")
+      (Result.Success r) (= (Array.length (EmbeddingResponse.embeddings &r)) 0)
+      _ false)
+    "Gemini.parse-embedding-response returns empty embeddings when key missing")
+
+  ; =========================================================================
+  ; Embedding edge cases: malformed JSON response
+  ; =========================================================================
+
+  (assert-true test
+    (match (OpenAI.parse-embedding-response "not json at all")
+      (Result.Error _) true
+      _ false)
+    "OpenAI.parse-embedding-response returns error for malformed JSON")
+
+  (assert-true test
+    (match (Ollama.parse-embedding-response "{bad")
+      (Result.Error _) true
+      _ false)
+    "Ollama.parse-embedding-response returns error for malformed JSON")
+
+  (assert-true test
+    (match (Gemini.parse-embedding-response "")
+      (Result.Error _) true
+      _ false)
+    "Gemini.parse-embedding-response returns error for malformed JSON"))
