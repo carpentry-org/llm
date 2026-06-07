@@ -120,6 +120,20 @@ Anthropic has no native JSON mode — for them, the library falls back to a
 system prompt instruction. Best-effort, not guaranteed. All other providers use
 their native JSON mode.
 
+### Embeddings
+
+```clojure
+(let [config (LLM.openai "sk-...")
+      req (LLM.embedding-request "text-embedding-3-small" [@"hello" @"world"])]
+  (match (LLM.embed &config &req)
+    (Result.Success r)
+      (println* "got " (Array.length (EmbeddingResponse.embeddings &r)) " embeddings")
+    (Result.Error e) (IO.errorln &(LLMError.str &e))))
+```
+
+Anthropic does not offer an embeddings API — calling `LLM.embed` with an
+Anthropic config returns a `Transport` error.
+
 ## API
 
 ### Construction
@@ -134,6 +148,7 @@ their native JSON mode.
 | `LLM.chat-request-with-tools model msgs max-tokens temp tools` | Request with tool definitions |
 | `LLM.chat-request-json model msgs max-tokens temp` | JSON output mode |
 | `LLM.chat-request-with-schema model msgs max-tokens temp schema` | Schema-constrained JSON |
+| `LLM.embedding-request model input` | Embedding request (input is an array of strings) |
 | `Message.user content` | User message |
 | `Message.assistant content` | Assistant message |
 | `Message.system content` | System message |
@@ -148,6 +163,7 @@ their native JSON mode.
 | `LLM.chat-loop config model msgs max-tokens temp tools handler max-iters` | Agentic tool-use loop. Calls `chat`, invokes `handler` per tool call, repeats until done or limit reached |
 | `LLM.chat-stream config req` | Streaming chat. Returns `(Result LlmStream LLMError)` |
 | `LlmStream.poll stream` | Returns `(Maybe String)` — next token, or `Nothing` when done |
+| `LLM.embed config req` | Generate embeddings. Returns `(Result EmbeddingResponse LLMError)` |
 | `LlmStream.close stream` | Close the underlying connection |
 
 ### Errors
@@ -164,7 +180,7 @@ from each provider's specific error JSON shape.
 ## Provider quirks
 
 - **Anthropic**: System messages are extracted from the message array and sent
-  in a separate `system` field. No native JSON mode.
+  in a separate `system` field. No native JSON mode. No embeddings API.
 - **OpenAI**: Standard format. System messages are kept as a `"system"` role in
   the messages array.
 - **Ollama**: Same shape as OpenAI for messages and tool calls. NDJSON for
@@ -185,8 +201,9 @@ carp -x test/llm.carp
 The unit tests don't make network calls. For
 live tests against real APIs, see `examples/anthropic.carp`,
 `examples/openai.carp`, `examples/ollama.carp`, `examples/gemini.carp` and
-their `_stream`, `_tool`, `_json` variants. Most require an API key in the
-appropriate environment variable.
+their `_stream`, `_tool`, `_json` variants, plus `examples/embeddings.carp`
+for the embeddings API. Most require an API key in the appropriate environment
+variable.
 
 <hr/>
 

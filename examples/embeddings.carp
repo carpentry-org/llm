@@ -1,0 +1,35 @@
+(load "../llm.carp")
+
+; Generate text embeddings with the OpenAI API.
+;
+; Set the OPENAI_API_KEY environment variable before running.
+;
+; Usage: OPENAI_API_KEY=sk-... carp -x examples/embeddings.carp
+
+(defn main []
+  (match (IO.getenv "OPENAI_API_KEY")
+    (Maybe.Nothing) (IO.errorln "set OPENAI_API_KEY")
+    (Maybe.Just key)
+      (let [config (LLM.openai &key)
+            req (LLM.embedding-request "text-embedding-3-small"
+                                       [@"The quick brown fox"
+                                        @"jumped over the lazy dog"])]
+        (match (LLM.embed &config &req)
+          (Result.Success r)
+            (do
+              (IO.println
+                &(String.concat
+                  &[@"Embeddings: "
+                    @&(Int.str (Array.length (EmbeddingResponse.embeddings &r)))
+                    @" vectors"]))
+              (Array.for-each
+                &(fn [emb]
+                  (IO.println
+                    &(String.concat
+                      &[@"  dimensions: " @&(Int.str (Array.length emb))])))
+                (EmbeddingResponse.embeddings &r))
+              (IO.println
+                &(String.concat
+                  &[@"Total tokens: "
+                    @&(Int.str @(EmbeddingResponse.total-tokens &r))])))
+          (Result.Error e) (IO.errorln &(LLMError.str &e))))))

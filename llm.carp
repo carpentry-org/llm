@@ -1385,3 +1385,229 @@ reached, the last response is returned (it may still contain tool calls).
                   (set! msgs (llm-apply-loop-step msgs &r &handler))
                   (set! i (inc i)))))))
       result)))
+
+; ===========================================================================
+; Embeddings
+; ===========================================================================
+
+(doc EmbeddingRequest "a request to generate text embeddings.
+
+Build with `LLM.embedding-request` rather than constructing directly.
+
+- `model`: the provider-specific embedding model identifier
+- `input`: an array of text strings to embed")
+(deftype EmbeddingRequest [model String
+                           input (Array String)])
+
+(doc EmbeddingResponse "a parsed embeddings response.
+
+- `embeddings`: an array of embedding vectors, one per input text, each a
+  dense array of `Double` values
+- `total-tokens`: total tokens consumed by the request (0 for providers
+  that do not report token usage on embeddings)")
+(deftype EmbeddingResponse [embeddings (Array (Array Double))
+                            total-tokens Int])
+
+(doc llm-json-doubles "parses a JSON array of numbers into an array of doubles.
+Returns an empty array if the value is not an array.")
+(defn llm-json-doubles [j]
+  (match (JSON.as-arr j)
+    (Maybe.Just boxes)
+      (Array.copy-map
+        &(fn [bx] (Maybe.from (JSON.as-num (Box.peek bx)) 0.0))
+        &boxes)
+    _ (the (Array Double) [])))
+
+; --- OpenAI embeddings ---
+
+(defmodule OpenAI
+  (doc build-embedding-request
+    "builds the JSON request body for the OpenAI embeddings API.")
+  (defn build-embedding-request [req]
+    (let [input-arr (JSON.Arr
+            (Array.copy-map &(fn [s] (Box.init (JSON.Str @s)))
+                            (EmbeddingRequest.input req)))
+          entries [(JSON.entry @"model" (JSON.Str @(EmbeddingRequest.model req)))
+                   (JSON.entry @"input" input-arr)]]
+      (llm-json-to-str &(JSON.obj entries))))
+
+  (doc parse-embedding-response "parses an OpenAI embeddings API response.")
+  (defn parse-embedding-response [body]
+    (match (llm-json-parse body)
+      (Result.Error e) (Result.Error e)
+      (Result.Success j)
+        (let [embeddings (match (JSON.get &j "data")
+                (Maybe.Just arr)
+                  (match (JSON.as-arr &arr)
+                    (Maybe.Just boxes)
+                      (Array.copy-map
+                        &(fn [bx]
+                          (match (JSON.get (Box.peek bx) "embedding")
+                            (Maybe.Just emb) (llm-json-doubles &emb)
+                            _ (the (Array Double) [])))
+                        &boxes)
+                    _ (the (Array (Array Double)) []))
+                _ (the (Array (Array Double)) []))
+              total-tokens (llm-json-int &j &[@"usage" @"total_tokens"])]
+          (Result.Success (EmbeddingResponse.init embeddings total-tokens)))))
+
+  (doc embedding-endpoint "returns the embeddings endpoint path.")
+  (defn embedding-endpoint [_config] @"/v1/embeddings"))
+
+; --- Ollama embeddings ---
+
+(defmodule Ollama
+  (doc build-embedding-request
+    "builds the JSON request body for the Ollama embed API.")
+  (defn build-embedding-request [req]
+    (let [input-arr (JSON.Arr
+            (Array.copy-map &(fn [s] (Box.init (JSON.Str @s)))
+                            (EmbeddingRequest.input req)))
+          entries [(JSON.entry @"model" (JSON.Str @(EmbeddingRequest.model req)))
+                   (JSON.entry @"input" input-arr)]]
+      (llm-json-to-str &(JSON.obj entries))))
+
+  (doc parse-embedding-response "parses an Ollama embed API response.")
+  (defn parse-embedding-response [body]
+    (match (llm-json-parse body)
+      (Result.Error e) (Result.Error e)
+      (Result.Success j)
+        (let [embeddings (match (JSON.get &j "embeddings")
+                (Maybe.Just arr)
+                  (match (JSON.as-arr &arr)
+                    (Maybe.Just boxes)
+                      (Array.copy-map
+                        &(fn [bx] (llm-json-doubles (Box.peek bx)))
+                        &boxes)
+                    _ (the (Array (Array Double)) []))
+                _ (the (Array (Array Double)) []))]
+          (Result.Success (EmbeddingResponse.init embeddings 0)))))
+
+  (doc embedding-endpoint "returns the embed endpoint path.")
+  (defn embedding-endpoint [_config] @"/api/embed"))
+
+; --- Gemini embeddings ---
+
+(defmodule Gemini
+  (doc build-embedding-request
+    "builds the JSON request body for the Gemini batchEmbedContents API.")
+  (defn build-embedding-request [req]
+    (let [model-path (String.concat &[@"models/" @(EmbeddingRequest.model req)])
+          reqs (JSON.Arr
+            (Array.copy-map
+              &(fn [s]
+                (Box.init
+                  (JSON.obj
+                    [(JSON.entry @"model" (JSON.Str @&model-path))
+                     (JSON.entry @"content"
+                                 (JSON.obj
+                                   [(JSON.entry @"parts"
+                                                (JSON.Arr
+                                                  [(Box.init
+                                                     (JSON.obj [(JSON.entry @"text"
+                                                                            (JSON.Str @s))]))]))]))])))
+              (EmbeddingRequest.input req)))]
+      (llm-json-to-str &(JSON.obj [(JSON.entry @"requests" reqs)]))))
+
+  (doc parse-embedding-response
+    "parses a Gemini batchEmbedContents API response.")
+  (defn parse-embedding-response [body]
+    (match (llm-json-parse body)
+      (Result.Error e) (Result.Error e)
+      (Result.Success j)
+        (let [embeddings (match (JSON.get &j "embeddings")
+                (Maybe.Just arr)
+                  (match (JSON.as-arr &arr)
+                    (Maybe.Just boxes)
+                      (Array.copy-map
+                        &(fn [bx]
+                          (match (JSON.get (Box.peek bx) "values")
+                            (Maybe.Just vals) (llm-json-doubles &vals)
+                            _ (the (Array Double) [])))
+                        &boxes)
+                    _ (the (Array (Array Double)) []))
+                _ (the (Array (Array Double)) []))]
+          (Result.Success (EmbeddingResponse.init embeddings 0)))))
+
+  (doc embedding-endpoint
+    "returns the batchEmbedContents endpoint path for the given model.")
+  (defn embedding-endpoint [_config model]
+    (String.concat &[@"/v1beta/models/" @model @":batchEmbedContents"])))
+
+; --- Embedding dispatch ---
+
+(doc llm-embedding-provider? "returns `true` if the given provider supports
+embeddings. Anthropic does not offer an embeddings API.")
+(defn llm-embedding-provider? [name]
+  (or (= name "openai") (or (= name "ollama") (= name "gemini"))))
+
+(doc llm-build-embedding-body "builds a provider-specific embedding request
+body JSON string.")
+(defn llm-build-embedding-body [provider req]
+  (cond
+    (= provider "openai") (OpenAI.build-embedding-request req)
+    (= provider "ollama") (Ollama.build-embedding-request req)
+    (= provider "gemini") (Gemini.build-embedding-request req)
+    @""))
+
+(doc llm-embedding-endpoint-path "returns the embedding API path for the
+given provider.")
+(defn llm-embedding-endpoint-path [provider config req]
+  (cond
+    (= provider "openai") (OpenAI.embedding-endpoint config)
+    (= provider "ollama") (Ollama.embedding-endpoint config)
+    (= provider "gemini")
+      (Gemini.embedding-endpoint config (EmbeddingRequest.model req))
+    @""))
+
+(doc llm-parse-embedding-success "parses a 2xx embedding response body using
+the provider's parser.")
+(defn llm-parse-embedding-success [provider body]
+  (cond
+    (= provider "openai") (OpenAI.parse-embedding-response body)
+    (= provider "ollama") (Ollama.parse-embedding-response body)
+    (= provider "gemini") (Gemini.parse-embedding-response body)
+    (Result.Error @"unknown provider")))
+
+(defmodule LLM
+  (doc embedding-request "creates an embedding request.
+
+- `model`: the provider-specific embedding model identifier
+- `input`: an array of text strings to embed")
+  (defn embedding-request [model input] (EmbeddingRequest.init @model input))
+
+  (doc embed "sends an embedding request to the configured provider.
+Returns `(Result EmbeddingResponse LLMError)`.
+
+Anthropic does not offer an embeddings API; calling this with an Anthropic
+config returns a `Transport` error.
+
+```
+(let [config (LLM.openai \"sk-...\")
+      req (LLM.embedding-request \"text-embedding-3-small\"
+            [@\"hello\" @\"world\"])]
+  (match (LLM.embed &config &req)
+    (Result.Success r)
+      (println* (Array.length (EmbeddingResponse.embeddings &r)))
+    (Result.Error e) (IO.errorln &(LLMError.str &e))))
+```")
+  (defn embed [config req]
+    (let [name (ProviderConfig.name config)]
+      (if (not (llm-embedding-provider? name))
+        (llm-transport-error
+          (String.concat &[@name @" does not support embeddings"]))
+        (let [base (ProviderConfig.base-url config)
+              body (llm-build-embedding-body name req)
+              path (llm-embedding-endpoint-path name config req)
+              url (String.concat &[@base path])
+              hdrs (llm-build-headers name config (String.length &body))]
+          (match (Client.request "POST" &url hdrs &body)
+            (Result.Success resp)
+              (if (Response.ok? &resp)
+                (match (llm-parse-embedding-success name (Response.body &resp))
+                  (Result.Success r) (Result.Success r)
+                  (Result.Error e) (llm-transport-error e))
+                (llm-parse-error name
+                                 @(Response.code &resp)
+                                 (Response.body &resp)))
+            (Result.Error e) (llm-transport-error e)))))))
