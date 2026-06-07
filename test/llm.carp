@@ -1415,11 +1415,14 @@
     "OpenAI.parse-embedding-response returns empty embeddings when data key missing")
 
   (assert-true test
-    (match (OpenAI.parse-embedding-response "{\"data\":[{\"index\":0}],\"usage\":{\"total_tokens\":1}}")
+    (match (OpenAI.parse-embedding-response
+        "{\"data\":[{\"index\":0}],\"usage\":{\"total_tokens\":1}}")
       (Result.Success r)
-        (and (= (Array.length (EmbeddingResponse.embeddings &r)) 1)
-             (= (Array.length
-                  (Array.unsafe-nth (EmbeddingResponse.embeddings &r) 0)) 0))
+        (and
+          (= (Array.length (EmbeddingResponse.embeddings &r)) 1)
+          (=
+            (Array.length (Array.unsafe-nth (EmbeddingResponse.embeddings &r) 0))
+            0))
       _ false)
     "OpenAI.parse-embedding-response returns empty vector when embedding key missing")
 
@@ -1452,7 +1455,5 @@
     "Ollama.parse-embedding-response returns error for malformed JSON")
 
   (assert-true test
-    (match (Gemini.parse-embedding-response "")
-      (Result.Error _) true
-      _ false)
+    (match (Gemini.parse-embedding-response "") (Result.Error _) true _ false)
     "Gemini.parse-embedding-response returns error for malformed JSON"))
