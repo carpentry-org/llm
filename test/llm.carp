@@ -542,6 +542,215 @@
     "Anthropic schema mode adds schema to system prompt")
 
   ; =========================================================================
+  ; Sampling parameters: defaults omitted
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and
+            (match (JSON.get &j "top_p")
+              (Maybe.Just _) false
+              (Maybe.Nothing) true)
+            (and
+              (match (JSON.get &j "frequency_penalty")
+                (Maybe.Just _) false
+                (Maybe.Nothing) true)
+              (and
+                (match (JSON.get &j "presence_penalty")
+                  (Maybe.Just _) false
+                  (Maybe.Nothing) true)
+                (match (JSON.get &j "seed")
+                  (Maybe.Just _) false
+                  (Maybe.Nothing) true))))
+        _ false))
+    "OpenAI build-request omits sampling params when unset")
+
+  ; =========================================================================
+  ; Sampling parameters: OpenAI top_p, frequency_penalty, seed
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLMRequest.set-top-p
+            (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+            0.9)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "top_p")
+            (Maybe.Just v) (= (Maybe.from (JSON.as-num &v) 0.0) 0.9)
+            _ false)
+        _ false))
+    "OpenAI build-request includes top_p when set")
+
+  (assert-true test
+    (let [req (LLMRequest.set-frequency-penalty
+            (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+            0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "frequency_penalty")
+            (Maybe.Just v) (= (Maybe.from (JSON.as-num &v) 0.0) 0.5)
+            _ false)
+        _ false))
+    "OpenAI build-request includes frequency_penalty when set")
+
+  (assert-true test
+    (let [req (LLMRequest.set-seed
+            (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+            42)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "seed")
+            (Maybe.Just v)
+              (= (Double.to-int (Maybe.from (JSON.as-num &v) 0.0)) 42)
+            _ false)
+        _ false))
+    "OpenAI build-request includes seed when set")
+
+  ; =========================================================================
+  ; Sampling parameters: OpenAI ignores top_k
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLMRequest.set-top-k
+            (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+            40)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "top_k") (Maybe.Just _) false (Maybe.Nothing) true)
+        _ false))
+    "OpenAI build-request ignores top_k (unsupported)")
+
+  ; =========================================================================
+  ; Sampling parameters: Anthropic top_p and top_k
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLMRequest.set-top-p
+            (LLMRequest.set-top-k
+              (LLM.chat-request "claude-sonnet-4-20250514"
+                                [(Message.user "hi")]
+                                100
+                                0.5)
+              40)
+            0.9)
+          body (Anthropic.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and
+            (match (JSON.get &j "top_p")
+              (Maybe.Just v) (= (Maybe.from (JSON.as-num &v) 0.0) 0.9)
+              _ false)
+            (match (JSON.get &j "top_k")
+              (Maybe.Just v)
+                (= (Double.to-int (Maybe.from (JSON.as-num &v) 0.0)) 40)
+              _ false))
+        _ false))
+    "Anthropic build-request includes top_p and top_k when set")
+
+  ; =========================================================================
+  ; Sampling parameters: Ollama options
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLMRequest.set-top-p
+            (LLMRequest.set-top-k
+              (LLMRequest.set-seed
+                (LLM.chat-request "llama3" [(Message.user "hi")] 128 0.8)
+                42)
+              40)
+            0.9)
+          body (Ollama.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and
+            (match (JSON.get &j "options")
+              (Maybe.Just opts)
+                (and
+                  (=
+                    (Maybe.from
+                      (JSON.as-num
+                        &(Maybe.from (JSON.get &opts "top_p") (JSON.Null)))
+                      0.0)
+                    0.9)
+                  (and
+                    (=
+                      (Double.to-int
+                        (Maybe.from
+                          (JSON.as-num
+                            &(Maybe.from (JSON.get &opts "top_k") (JSON.Null)))
+                          0.0))
+                      40)
+                    (=
+                      (Double.to-int
+                        (Maybe.from
+                          (JSON.as-num
+                            &(Maybe.from (JSON.get &opts "seed") (JSON.Null)))
+                          0.0))
+                      42)))
+              _ false)
+            true)
+        _ false))
+    "Ollama build-request includes sampling params in options")
+
+  ; =========================================================================
+  ; Sampling parameters: Gemini generationConfig
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLMRequest.set-top-p
+            (LLMRequest.set-top-k
+              (LLM.chat-request "gemini-pro" [(Message.user "hi")] 100 0.5)
+              40)
+            0.9)
+          body (Gemini.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (and
+            (=
+              (Maybe.from
+                (JSON.as-num
+                  &(Maybe.from
+                    (JSON.get-in &j &[@"generationConfig" @"topP"])
+                    (JSON.Null)))
+                0.0)
+              0.9)
+            (=
+              (Double.to-int
+                (Maybe.from
+                  (JSON.as-num
+                    &(Maybe.from
+                      (JSON.get-in &j &[@"generationConfig" @"topK"])
+                      (JSON.Null)))
+                  0.0))
+              40))
+        _ false))
+    "Gemini build-request includes topP and topK in generationConfig")
+
+  ; =========================================================================
+  ; Sampling parameters: negative presence_penalty
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLMRequest.set-presence-penalty
+            (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+            -1.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "presence_penalty")
+            (Maybe.Just v) (= (Maybe.from (JSON.as-num &v) 0.0) -1.5)
+            _ false)
+        _ false))
+    "OpenAI build-request includes negative presence_penalty")
+
+  ; =========================================================================
   ; Transport error on connection failure
   ; =========================================================================
 

@@ -75,7 +75,8 @@ tokens.")
 
 Build with `LLM.chat-request`, `LLM.chat-request-with-tools`,
 `LLM.chat-request-json`, or `LLM.chat-request-with-schema` rather than
-constructing directly.
+constructing directly. Use the auto-generated `LLMRequest.set-*` functions
+to set optional sampling parameters (e.g. `(LLMRequest.set-top-p req 0.9)`).
 
 - `model`: provider-specific model identifier
 - `messages`: the conversation history
@@ -84,7 +85,17 @@ constructing directly.
 - `tools`: tool definitions (empty array if none)
 - `format-mode`: `format-text`, `format-json`, or `format-json-schema`
 - `format-schema`: JSON schema for structured output (used when mode is
-  `format-json-schema`)")
+  `format-json-schema`)
+- `top-p`: nucleus sampling threshold (0.0 to 1.0); negative means unset.
+  Supported by all providers.
+- `top-k`: top-k sampling (positive integer); negative means unset.
+  Supported by Anthropic, Ollama, and Gemini (ignored by OpenAI).
+- `frequency-penalty`: penalise repeated tokens (-2.0 to 2.0); values
+  below -3.0 mean unset. Supported by OpenAI and Ollama.
+- `presence-penalty`: penalise tokens already present (-2.0 to 2.0);
+  values below -3.0 mean unset. Supported by OpenAI and Ollama.
+- `seed`: deterministic sampling seed (non-negative integer); negative
+  means unset. Supported by OpenAI and Ollama.")
 (deftype LLMRequest
   [model String
    messages (Array Message)
@@ -92,7 +103,12 @@ constructing directly.
    temperature Double
    tools (Array ToolDef)
    format-mode Int
-   format-schema JSON])
+   format-schema JSON
+   top-p Double
+   top-k Int
+   frequency-penalty Double
+   presence-penalty Double
+   seed Int])
 
 (doc LLMResponse "a parsed response from an LLM provider.
 
@@ -492,7 +508,27 @@ string if the path is missing or the value isn't a string.")
                                                (Box.init (llm-tooldef-to-openai-json td)))
                                              (LLMRequest.tools req)))))
             with-stream)
-          entries (OpenAI.add-format with-tools req)]
+          with-format (OpenAI.add-format with-tools req)
+          with-top-p (if (>= @(LLMRequest.top-p req) 0.0)
+            (Array.push-back with-format
+                             (JSON.entry @"top_p"
+                                         (JSON.Num @(LLMRequest.top-p req))))
+            with-format)
+          with-freq (if (> @(LLMRequest.frequency-penalty req) -3.0)
+            (Array.push-back with-top-p
+                             (JSON.entry @"frequency_penalty"
+                                         (JSON.Num @(LLMRequest.frequency-penalty req))))
+            with-top-p)
+          with-pres (if (> @(LLMRequest.presence-penalty req) -3.0)
+            (Array.push-back with-freq
+                             (JSON.entry @"presence_penalty"
+                                         (JSON.Num @(LLMRequest.presence-penalty req))))
+            with-freq)
+          entries (if (>= @(LLMRequest.seed req) 0)
+            (Array.push-back with-pres
+                             (JSON.entry @"seed"
+                                         (JSON.Num (Double.from-int @(LLMRequest.seed req)))))
+            with-pres)]
       (llm-json-to-str &(JSON.obj entries))))
 
   (doc build-request
@@ -618,8 +654,8 @@ so callers can distinguish them from regular content tokens.")
             (Array.push-back with-stream
                              (JSON.entry @"system" (JSON.Str sys-text)))
             with-stream)
-          entries (if (and (not stream?)
-                           (> (Array.length (LLMRequest.tools req)) 0))
+          with-tools (if (and (not stream?)
+                              (> (Array.length (LLMRequest.tools req)) 0))
             (Array.push-back with-sys
                              (JSON.entry @"tools"
                                          (JSON.Arr
@@ -634,7 +670,18 @@ so callers can distinguish them from regular content tokens.")
                                                     (JSON.entry @"input_schema"
                                                                 @(ToolDef.parameters td))])))
                                              (LLMRequest.tools req)))))
-            with-sys)]
+            with-sys)
+          with-top-p (if (>= @(LLMRequest.top-p req) 0.0)
+            (Array.push-back with-tools
+                             (JSON.entry @"top_p"
+                                         (JSON.Num @(LLMRequest.top-p req))))
+            with-tools)
+          entries (if (> @(LLMRequest.top-k req) 0)
+            (Array.push-back with-top-p
+                             (JSON.entry @"top_k"
+                                         (JSON.Num
+                                           (Double.from-int @(LLMRequest.top-k req)))))
+            with-top-p)]
       (llm-json-to-str &(JSON.obj entries))))
 
   (doc build-request
@@ -726,11 +773,38 @@ so callers can distinguish them from regular content tokens.")
             (Array.copy-map
               &(fn [m] (Box.init (llm-message-to-ollama-json m)))
               (LLMRequest.messages req)))
-          opts (JSON.obj
-            [(JSON.entry @"num_predict"
-                         (JSON.Num
-                           (Double.from-int @(LLMRequest.max-tokens req))))
-             (JSON.entry @"temperature" (JSON.Num @(LLMRequest.temperature req)))])
+          opt-base [(JSON.entry @"num_predict"
+                                (JSON.Num
+                                  (Double.from-int @(LLMRequest.max-tokens req))))
+                    (JSON.entry @"temperature"
+                                (JSON.Num @(LLMRequest.temperature req)))]
+          opt-with-top-p (if (>= @(LLMRequest.top-p req) 0.0)
+            (Array.push-back opt-base
+                             (JSON.entry @"top_p"
+                                         (JSON.Num @(LLMRequest.top-p req))))
+            opt-base)
+          opt-with-top-k (if (> @(LLMRequest.top-k req) 0)
+            (Array.push-back opt-with-top-p
+                             (JSON.entry @"top_k"
+                                         (JSON.Num
+                                           (Double.from-int @(LLMRequest.top-k req)))))
+            opt-with-top-p)
+          opt-with-freq (if (> @(LLMRequest.frequency-penalty req) -3.0)
+            (Array.push-back opt-with-top-k
+                             (JSON.entry @"frequency_penalty"
+                                         (JSON.Num @(LLMRequest.frequency-penalty req))))
+            opt-with-top-k)
+          opt-with-pres (if (> @(LLMRequest.presence-penalty req) -3.0)
+            (Array.push-back opt-with-freq
+                             (JSON.entry @"presence_penalty"
+                                         (JSON.Num @(LLMRequest.presence-penalty req))))
+            opt-with-freq)
+          opt-entries (if (>= @(LLMRequest.seed req) 0)
+            (Array.push-back opt-with-pres
+                             (JSON.entry @"seed"
+                                         (JSON.Num (Double.from-int @(LLMRequest.seed req)))))
+            opt-with-pres)
+          opts (JSON.obj opt-entries)
           base [(JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
                 (JSON.entry @"messages" msgs)
                 (JSON.entry @"stream" (JSON.Bool stream?))
@@ -852,11 +926,22 @@ the text part.")
                                   (Double.from-int @(LLMRequest.max-tokens req))))
                     (JSON.entry @"temperature"
                                 (JSON.Num @(LLMRequest.temperature req)))]
-          gen-with-mime (if (> @(LLMRequest.format-mode req) format-text)
+          gen-with-top-p (if (>= @(LLMRequest.top-p req) 0.0)
             (Array.push-back gen-base
+                             (JSON.entry @"topP"
+                                         (JSON.Num @(LLMRequest.top-p req))))
+            gen-base)
+          gen-with-top-k (if (> @(LLMRequest.top-k req) 0)
+            (Array.push-back gen-with-top-p
+                             (JSON.entry @"topK"
+                                         (JSON.Num
+                                           (Double.from-int @(LLMRequest.top-k req)))))
+            gen-with-top-p)
+          gen-with-mime (if (> @(LLMRequest.format-mode req) format-text)
+            (Array.push-back gen-with-top-k
                              (JSON.entry @"responseMimeType"
                                          (JSON.Str @"application/json")))
-            gen-base)
+            gen-with-top-k)
           gen-entries (if (= @(LLMRequest.format-mode req) format-json-schema)
             (Array.push-back gen-with-mime
                              (JSON.entry @"responseSchema"
@@ -1132,7 +1217,12 @@ key (pass empty string for none).")
                      temperature
                      []
                      format-text
-                     (JSON.Null)))
+                     (JSON.Null)
+                     -1.0
+                     -1
+                     -100.0
+                     -100.0
+                     -1))
 
   (doc chat-request-with-tools "creates an LLM request with tool definitions.")
   (defn chat-request-with-tools [model messages max-tokens temperature tools]
@@ -1142,7 +1232,12 @@ key (pass empty string for none).")
                      temperature
                      tools
                      format-text
-                     (JSON.Null)))
+                     (JSON.Null)
+                     -1.0
+                     -1
+                     -100.0
+                     -100.0
+                     -1))
 
   (doc chat-request-json "creates an LLM request that asks for a JSON response.
 
@@ -1156,7 +1251,12 @@ JSON mode.")
                      temperature
                      []
                      format-json
-                     (JSON.Null)))
+                     (JSON.Null)
+                     -1.0
+                     -1
+                     -100.0
+                     -100.0
+                     -1))
 
   (doc chat-request-with-schema "creates an LLM request constrained to a JSON
 schema. The schema is a JSON value (use the `JSON` constructors).")
@@ -1167,7 +1267,12 @@ schema. The schema is a JSON value (use the `JSON` constructors).")
                      temperature
                      []
                      format-json-schema
-                     schema))
+                     schema
+                     -1.0
+                     -1
+                     -100.0
+                     -100.0
+                     -1))
 
   (doc chat "sends a chat request to the configured provider.
 Returns `(Result LLMResponse LLMError)`. On HTTP errors (4xx/5xx), returns a
