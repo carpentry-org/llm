@@ -583,9 +583,9 @@ Falls back to `reasoning_content` when `content` is empty (reasoning models
 via vLLM and similar). Thinking tokens are prefixed with a SOH byte (0x01)
 so callers can distinguish them from regular content tokens.")
   (defn parse-delta [line]
-    (if (String.starts-with? line "data: [DONE]")
-      (Maybe.Nothing)
-      (if (String.starts-with? line "data: ")
+    (cond
+      (String.starts-with? line "data: [DONE]") (Maybe.Nothing)
+      (String.starts-with? line "data: ")
         (let [json-str (String.byte-slice line 6 (String.length line))]
           (match (JSON.parse &json-str)
             (Result.Success j)
@@ -604,7 +604,7 @@ so callers can distinguish them from regular content tokens.")
                     _ (Maybe.Nothing))
                 _ (Maybe.Nothing))
             _ (Maybe.Nothing)))
-        (Maybe.Nothing)))))
+      (Maybe.Nothing))))
 
 ; ===========================================================================
 ; Provider: Anthropic
