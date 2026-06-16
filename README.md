@@ -56,6 +56,32 @@ constructor:
   (Result.Error e) (IO.errorln &(LLMError.str &e)))
 ```
 
+### Streaming with tool calls
+
+Use `poll-event` instead of `poll` to receive both text and tool calls from
+a streaming response. Incremental tool call data (OpenAI/Anthropic) is
+accumulated internally and emitted as complete `ToolCall` values:
+
+```clojure
+(let [tools [(ToolDef.init @"get_weather" @"Get weather" schema)]
+      req (LLM.chat-request-with-tools "gpt-4"
+            [(Message.user "Weather in Paris?")] 256 0.7 tools)]
+  (match (LLM.chat-stream &config &req)
+    (Result.Success stream)
+      (do
+        (while-do true
+          (match (LlmStream.poll-event &stream)
+            (Maybe.Nothing) (break)
+            (Maybe.Just evt)
+              (match-ref &evt
+                (StreamEvent.Text tok) (IO.print tok)
+                (StreamEvent.ToolCallEvent tc)
+                  (println* "tool: " (ToolCall.name tc)
+                            " args: " (ToolCall.arguments tc)))))
+        (LlmStream.close stream))
+    (Result.Error e) (IO.errorln &(LLMError.str &e))))
+```
+
 ### Tool use
 
 ```clojure
@@ -162,7 +188,8 @@ Anthropic config returns a `Transport` error.
 | `LLM.chat config req` | Synchronous chat. Returns `(Result LLMResponse LLMError)` |
 | `LLM.chat-loop config model msgs max-tokens temp tools handler max-iters` | Agentic tool-use loop. Calls `chat`, invokes `handler` per tool call, repeats until done or limit reached |
 | `LLM.chat-stream config req` | Streaming chat. Returns `(Result LlmStream LLMError)` |
-| `LlmStream.poll stream` | Returns `(Maybe String)` — next token, or `Nothing` when done |
+| `LlmStream.poll stream` | Returns `(Maybe String)` — next text token, or `Nothing` when done |
+| `LlmStream.poll-event stream` | Returns `(Maybe StreamEvent)` — text or tool call event, or `Nothing` when done |
 | `LLM.embed config req` | Generate embeddings. Returns `(Result EmbeddingResponse LLMError)` |
 | `LlmStream.close stream` | Close the underlying connection |
 

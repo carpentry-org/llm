@@ -142,6 +142,30 @@ to set optional sampling parameters (e.g. `(LLMRequest.set-top-p req 0.9)`).
         (String.concat &[@"API error " @&(Int.str @code) @" (" @typ @"): " @msg])))
   (implements str LLMError.str))
 
+(doc StreamEvent "represents a single event from a streaming LLM response.
+
+- `Text`: a text delta (partial content token)
+- `ToolCallEvent`: a complete tool call extracted from the stream
+
+Use `LlmStream.poll-event` to receive these events. Returns
+`(Maybe StreamEvent)` — `Nothing` when the stream is finished.")
+(deftype StreamEvent
+  (Text [String])
+  (ToolCallEvent [ToolCall]))
+
+; Internal streaming parse result — not part of the public API.
+; Each provider's `parse-stream-event` returns one of these to indicate what
+; a single SSE/NDJSON line contains. `poll-event` accumulates incremental
+; tool-call data and emits complete `StreamEvent`s.
+(deftype StreamChunk
+  (ChunkText [String])
+  (ChunkToolStart [String String String])
+  (ChunkToolDelta [String])
+  (ChunkToolEnd [])
+  (ChunkToolFull [ToolCall])
+  (ChunkDone [])
+  (ChunkSkip []))
+
 (doc ProviderConfig "configuration for an LLM provider.
 
 Build with `LLM.anthropic`, `LLM.openai`, `LLM.ollama`, or `LLM.gemini`
@@ -498,8 +522,7 @@ string if the path is missing or the value isn't a string.")
           with-stream (if stream?
             (Array.push-back base (JSON.entry @"stream" (JSON.Bool true)))
             base)
-          with-tools (if (and (not stream?)
-                              (> (Array.length (LLMRequest.tools req)) 0))
+          with-tools (if (> (Array.length (LLMRequest.tools req)) 0)
             (Array.push-back with-stream
                              (JSON.entry @"tools"
                                          (JSON.Arr
@@ -604,7 +627,52 @@ so callers can distinguish them from regular content tokens.")
                     _ (Maybe.Nothing))
                 _ (Maybe.Nothing))
             _ (Maybe.Nothing)))
-      (Maybe.Nothing))))
+      (Maybe.Nothing)))
+
+  (doc parse-stream-event "parses an OpenAI streaming SSE line into a
+`StreamChunk`. Handles text deltas, incremental tool call data (start and
+argument fragments), reasoning tokens, and the `[DONE]` sentinel.")
+  (defn parse-stream-event [line]
+    (cond
+      (String.starts-with? line "data: [DONE]") (StreamChunk.ChunkDone)
+      (String.starts-with? line "data: ")
+        (let [json-str (String.byte-slice line 6 (String.length line))]
+          (match (JSON.parse &json-str)
+            (Result.Success j)
+              (match (JSON.get &j "choices")
+                (Maybe.Just arr)
+                  (match (JSON.nth &arr 0)
+                    (Maybe.Just choice)
+                      (let [tok (llm-json-str &choice &[@"delta" @"content"])]
+                        (if (> (String.length &tok) 0)
+                          (StreamChunk.ChunkText tok)
+                          (match (JSON.get-in &choice &[@"delta" @"tool_calls"])
+                            (Maybe.Just tcs-arr)
+                              (match (JSON.nth &tcs-arr 0)
+                                (Maybe.Just tc)
+                                  (let [id (llm-json-str &tc &[@"id"])
+                                        name (llm-json-str &tc
+                                                           &[@"function" @"name"])
+                                        args (llm-json-str &tc
+                                                           &[@"function"
+                                                             @"arguments"])]
+                                    (if (> (String.length &id) 0)
+                                      (StreamChunk.ChunkToolStart id name args)
+                                      (if (> (String.length &args) 0)
+                                        (StreamChunk.ChunkToolDelta args)
+                                        (StreamChunk.ChunkSkip))))
+                                _ (StreamChunk.ChunkSkip))
+                            _
+                              (let [think (llm-json-str &choice
+                                                        &[@"delta" @"reasoning"])]
+                                (if (> (String.length &think) 0)
+                                  (StreamChunk.ChunkText (String.concat &[(soh-prefix)
+                                                                          think]))
+                                  (StreamChunk.ChunkSkip))))))
+                    _ (StreamChunk.ChunkSkip))
+                _ (StreamChunk.ChunkSkip))
+            _ (StreamChunk.ChunkSkip)))
+      (StreamChunk.ChunkSkip))))
 
 ; ===========================================================================
 ; Provider: Anthropic
@@ -654,8 +722,7 @@ so callers can distinguish them from regular content tokens.")
             (Array.push-back with-stream
                              (JSON.entry @"system" (JSON.Str sys-text)))
             with-stream)
-          with-tools (if (and (not stream?)
-                              (> (Array.length (LLMRequest.tools req)) 0))
+          with-tools (if (> (Array.length (LLMRequest.tools req)) 0)
             (Array.push-back with-sys
                              (JSON.entry @"tools"
                                          (JSON.Arr
@@ -759,7 +826,42 @@ so callers can distinguish them from regular content tokens.")
                   (Maybe.Nothing))
               _ (Maybe.Nothing))
           _ (Maybe.Nothing)))
-      (Maybe.Nothing))))
+      (Maybe.Nothing)))
+
+  (doc parse-stream-event "parses an Anthropic streaming SSE line into a
+`StreamChunk`. Handles `content_block_start` (tool use), `content_block_delta`
+(text and input JSON), `content_block_stop`, and `message_stop`.")
+  (defn parse-stream-event [line]
+    (if (String.starts-with? line "data: ")
+      (let [json-str (String.byte-slice line 6 (String.length line))]
+        (match (JSON.parse &json-str)
+          (Result.Success j)
+            (let [type-str (llm-json-str &j &[@"type"])]
+              (cond
+                (= &type-str "content_block_start")
+                  (if (=
+                      &(llm-json-str &j &[@"content_block" @"type"])
+                      "tool_use")
+                    (StreamChunk.ChunkToolStart
+                      (llm-json-str &j &[@"content_block" @"id"])
+                      (llm-json-str &j &[@"content_block" @"name"])
+                      @"")
+                    (StreamChunk.ChunkSkip))
+                (= &type-str "content_block_delta")
+                  (let [delta-type (llm-json-str &j &[@"delta" @"type"])]
+                    (cond
+                      (= &delta-type "text_delta")
+                        (StreamChunk.ChunkText (llm-json-str &j
+                                                             &[@"delta" @"text"]))
+                      (= &delta-type "input_json_delta")
+                        (StreamChunk.ChunkToolDelta
+                          (llm-json-str &j &[@"delta" @"partial_json"]))
+                      (StreamChunk.ChunkSkip)))
+                (= &type-str "content_block_stop") (StreamChunk.ChunkToolEnd)
+                (= &type-str "message_stop") (StreamChunk.ChunkDone)
+                (StreamChunk.ChunkSkip)))
+          _ (StreamChunk.ChunkSkip)))
+      (StreamChunk.ChunkSkip))))
 
 ; ===========================================================================
 ; Provider: Ollama
@@ -809,8 +911,7 @@ so callers can distinguish them from regular content tokens.")
                 (JSON.entry @"messages" msgs)
                 (JSON.entry @"stream" (JSON.Bool stream?))
                 (JSON.entry @"options" opts)]
-          with-tools (if (and (not stream?)
-                              (> (Array.length (LLMRequest.tools req)) 0))
+          with-tools (if (> (Array.length (LLMRequest.tools req)) 0)
             (Array.push-back base
                              (JSON.entry @"tools"
                                          (JSON.Arr
@@ -882,7 +983,32 @@ them from regular content tokens.")
                       (Maybe.Just (String.concat &[(soh-prefix) think]))
                       (Maybe.Nothing))))))
           _ (Maybe.Nothing))
-      _ (Maybe.Nothing))))
+      _ (Maybe.Nothing)))
+
+  (doc parse-stream-event "parses an Ollama streaming NDJSON line into a
+`StreamChunk`. Extracts tool calls from the `done=true` final message. Text
+and thinking content come from earlier `done=false` messages.")
+  (defn parse-stream-event [line]
+    (match (JSON.parse line)
+      (Result.Success j)
+        (match (JSON.get &j "done")
+          (Maybe.Just d)
+            (if (Maybe.from (JSON.as-bool &d) false)
+              (let [tcs (match (JSON.get &j "message")
+                      (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
+                      _ [])]
+                (if (> (Array.length &tcs) 0)
+                  (StreamChunk.ChunkToolFull @(Array.unsafe-nth &tcs 0))
+                  (StreamChunk.ChunkDone)))
+              (let [tok (llm-json-str &j &[@"message" @"content"])]
+                (if (> (String.length &tok) 0)
+                  (StreamChunk.ChunkText tok)
+                  (let [think (llm-json-str &j &[@"message" @"thinking"])]
+                    (if (> (String.length &think) 0)
+                      (StreamChunk.ChunkText (String.concat &[(soh-prefix) think]))
+                      (StreamChunk.ChunkSkip))))))
+          _ (StreamChunk.ChunkSkip))
+      _ (StreamChunk.ChunkSkip))))
 
 ; ===========================================================================
 ; Provider: Gemini
@@ -1068,7 +1194,7 @@ The `?alt=sse` parameter enables Server-Sent Events streaming.")
      @"Content-Length" [(Int.str body-len)]})
 
   (doc build-stream-request "builds a streaming Gemini generateContent request.")
-  (defn build-stream-request [req] (Gemini.body req false))
+  (defn build-stream-request [req] (Gemini.body req true))
 
   (doc parse-delta "extracts text from a Gemini streaming SSE data line.")
   (defn parse-delta [line]
@@ -1090,7 +1216,46 @@ The `?alt=sse` parameter enables Server-Sent Events streaming.")
                   _ (Maybe.Nothing))
               _ (Maybe.Nothing))
           _ (Maybe.Nothing)))
-      (Maybe.Nothing))))
+      (Maybe.Nothing)))
+
+  (doc parse-stream-event "parses a Gemini streaming SSE line into a
+`StreamChunk`. Extracts function calls as complete `ChunkToolFull` events
+and text content as `ChunkText`.")
+  (defn parse-stream-event [line]
+    (if (String.starts-with? line "data: ")
+      (let [json-str (String.byte-slice line 6 (String.length line))]
+        (match (JSON.parse &json-str)
+          (Result.Success j)
+            (match (JSON.get &j "candidates")
+              (Maybe.Just arr)
+                (match (JSON.nth &arr 0)
+                  (Maybe.Just cand)
+                    (match (JSON.get-in &cand &[@"content" @"parts"])
+                      (Maybe.Just parts)
+                        (match (JSON.nth &parts 0)
+                          (Maybe.Just part)
+                            (match (JSON.get &part "functionCall")
+                              (Maybe.Just fc)
+                                (StreamChunk.ChunkToolFull
+                                  (ToolCall.init @""
+                                                 (llm-json-str &part
+                                                               &[@"functionCall"
+                                                                 @"name"])
+                                                 (match (JSON.get &fc "args")
+                                                   (Maybe.Just a)
+                                                     (llm-json-to-str &a)
+                                                   _ @"")))
+                              _
+                                (let [tok (llm-json-str &part &[@"text"])]
+                                  (if (> (String.length &tok) 0)
+                                    (StreamChunk.ChunkText tok)
+                                    (StreamChunk.ChunkSkip))))
+                          _ (StreamChunk.ChunkSkip))
+                      _ (StreamChunk.ChunkSkip))
+                  _ (StreamChunk.ChunkSkip))
+              _ (StreamChunk.ChunkSkip))
+          _ (StreamChunk.ChunkSkip)))
+      (StreamChunk.ChunkSkip))))
 
 ; ===========================================================================
 ; Provider dispatch helpers
@@ -1302,25 +1467,36 @@ the provider's error response. On transport failures, returns `LLMError.Transpor
 ; LlmStream — pull-based token stream
 ; ===========================================================================
 
-(doc LlmStream "is a pull-based stream of tokens from an LLM response.
-Wraps a `ResponseStream` and parses provider-specific streaming formats.
-Implements the `poll` interface.
+(doc LlmStream "is a pull-based stream of tokens and tool calls from an LLM
+response. Wraps a `ResponseStream` and parses provider-specific streaming
+formats. Use `poll` for text-only streaming or `poll-event` for streaming
+with tool call support.
 
 ```
 (match (LLM.chat-stream &config &req)
   (Result.Success stream)
     (do
       (while-do true
-        (match (LlmStream.poll &stream)
+        (match (LlmStream.poll-event &stream)
           (Maybe.Nothing) (break)
-          (Maybe.Just tok) (IO.print &tok)))
-      (IO.println \"\")
+          (Maybe.Just evt)
+            (match-ref &evt
+              (StreamEvent.Text tok) (IO.print tok)
+              (StreamEvent.ToolCallEvent tc)
+                (IO.println &(String.concat
+                  &[@\"tool: \" @(ToolCall.name tc)])))))
       (LlmStream.close stream))
   (Result.Error e) (IO.errorln &e))
 ```")
-(deftype LlmStream [rs ResponseStream
-                    linebuf String
-                    provider String])
+(deftype LlmStream
+  [rs ResponseStream
+   linebuf String
+   provider String
+   tc-id String
+   tc-name String
+   tc-args String
+   pending-tcs (Array ToolCall)
+   stream-done Bool])
 
 (doc llm-stream-extract-line "extracts a single newline-terminated line from
 an `LlmStream`'s line buffer, advancing the buffer. Returns
@@ -1346,9 +1522,48 @@ if the line contains a text delta, `(Maybe.Nothing)` otherwise.")
     (= provider "gemini") (Gemini.parse-delta line)
     (Maybe.Nothing)))
 
+(doc llm-stream-parse-event "dispatches a single streaming response line to
+the provider-specific `parse-stream-event` function. Returns a `StreamChunk`
+describing what the line contains.")
+(defn llm-stream-parse-event [provider line]
+  (cond
+    (= provider "ollama") (Ollama.parse-stream-event line)
+    (= provider "openai") (OpenAI.parse-stream-event line)
+    (= provider "anthropic") (Anthropic.parse-stream-event line)
+    (= provider "gemini") (Gemini.parse-stream-event line)
+    (StreamChunk.ChunkSkip)))
+
+(doc llm-finalize-pending-tc "if an in-progress tool call is being
+accumulated (tc-id is non-empty), finalizes it into a `ToolCall` and appends
+it to the pending queue. Resets the accumulation state.")
+(defn llm-finalize-pending-tc [s]
+  (when (> (String.length (LlmStream.tc-id s)) 0)
+    (let [tc (ToolCall.init @(LlmStream.tc-id s)
+                            @(LlmStream.tc-name s)
+                            @(LlmStream.tc-args s))]
+      (LlmStream.set-pending-tcs! s
+                                  (Array.push-back @(LlmStream.pending-tcs s) tc))
+      (LlmStream.set-tc-id! s @"")
+      (LlmStream.set-tc-name! s @"")
+      (LlmStream.set-tc-args! s @""))))
+
+(doc llm-dequeue-pending-tc "removes and returns the first `ToolCall` from
+the pending queue. The caller must ensure the queue is non-empty.")
+(defn llm-dequeue-pending-tc [s]
+  (let-do [tc @(Array.unsafe-nth (LlmStream.pending-tcs s) 0)
+           new-pending (the (Array ToolCall) [])]
+    (for [i 1 (Array.length (LlmStream.pending-tcs s))]
+      (set! new-pending
+            (Array.push-back new-pending
+                             @(Array.unsafe-nth (LlmStream.pending-tcs s) i))))
+    (LlmStream.set-pending-tcs! s new-pending)
+    tc))
+
 (defmodule LlmStream
   (doc poll
-    "returns the next token from the LLM stream, or `Nothing` when complete.")
+    "returns the next token from the LLM stream, or `Nothing` when complete.
+For text-only streaming. Use `poll-event` for streaming with tool call
+support.")
   (defn poll [s]
     (let-do [result (Maybe.Nothing)
              done false]
@@ -1372,6 +1587,79 @@ if the line contains a text delta, `(Maybe.Nothing)` otherwise.")
       result))
   (implements poll LlmStream.poll)
 
+  (doc poll-event "returns the next `StreamEvent` from the LLM stream, or
+`Nothing` when complete. Unlike `poll`, this handles tool calls from streaming
+responses — incremental tool call data is accumulated internally and emitted
+as complete `StreamEvent.ToolCallEvent` values.
+
+```
+(while-do true
+  (match (LlmStream.poll-event &stream)
+    (Maybe.Nothing) (break)
+    (Maybe.Just evt)
+      (match-ref &evt
+        (StreamEvent.Text tok) (IO.print tok)
+        (StreamEvent.ToolCallEvent tc)
+          (println* \"tool: \" (ToolCall.name tc)))))
+```")
+  (defn poll-event [s]
+    (let-do [result (the (Maybe StreamEvent) (Maybe.Nothing))
+             done false]
+      ; Return pending tool calls first
+      (when (> (Array.length (pending-tcs s)) 0)
+        (let [tc (llm-dequeue-pending-tc s)]
+          (set! result (Maybe.Just (StreamEvent.ToolCallEvent tc)))
+          (set! done true)))
+      ; Check if stream already marked done
+      (when (and (not done) @(stream-done s)) (set! done true))
+      ; Main loop
+      (while (and (not done) (Maybe.nothing? &result))
+        (match (llm-stream-extract-line s)
+          (Maybe.Just line)
+            (let [trimmed (String.trim &line)]
+              (when (> (String.length &trimmed) 0)
+                (match (llm-stream-parse-event (provider s) &trimmed)
+                  (StreamChunk.ChunkText tok)
+                    (set! result (Maybe.Just (StreamEvent.Text tok)))
+                  (StreamChunk.ChunkToolStart id name args)
+                    (do
+                      (llm-finalize-pending-tc s)
+                      (LlmStream.set-tc-id! s id)
+                      (LlmStream.set-tc-name! s name)
+                      (LlmStream.set-tc-args! s args))
+                  (StreamChunk.ChunkToolDelta args)
+                    (LlmStream.set-tc-args! s
+                                            (String.concat &[@(tc-args s) args]))
+                  (StreamChunk.ChunkToolEnd) (llm-finalize-pending-tc s)
+                  (StreamChunk.ChunkToolFull tc)
+                    (LlmStream.set-pending-tcs! s
+                                                (Array.push-back @(pending-tcs s)
+                                                                 tc))
+                  (StreamChunk.ChunkDone)
+                    (do
+                      (llm-finalize-pending-tc s)
+                      (LlmStream.set-stream-done! s true)
+                      (if (> (Array.length (pending-tcs s)) 0)
+                        (let [tc (llm-dequeue-pending-tc s)]
+                          (set! result
+                                (Maybe.Just (StreamEvent.ToolCallEvent tc))))
+                        (set! done true)))
+                  (StreamChunk.ChunkSkip) ())))
+          (Maybe.Nothing)
+            (match (ResponseStream.poll (rs s))
+              (Maybe.Nothing)
+                (do
+                  (llm-finalize-pending-tc s)
+                  (if (> (Array.length (pending-tcs s)) 0)
+                    (let [tc (llm-dequeue-pending-tc s)]
+                      (set! result (Maybe.Just (StreamEvent.ToolCallEvent tc))))
+                    (set! done true)))
+              (Maybe.Just chunk)
+                (LlmStream.set-linebuf! s
+                                        (String.concat &[@(LlmStream.linebuf s)
+                                                         chunk])))))
+      result))
+
   (doc close "closes the underlying connection.")
   (defn close [s] (ResponseStream.close! (rs &s))))
 
@@ -1393,7 +1681,8 @@ the HTTP status code before returning the stream.")
           (match (Client.request-stream "POST" &url hdrs &body)
             (Result.Success rs)
               (if (< @(ResponseStream.status-code &rs) 400)
-                (Result.Success (LlmStream.init rs @"" @name))
+                (Result.Success
+                  (LlmStream.init rs @"" @name @"" @"" @"" [] false))
                 (let-do [sc @(ResponseStream.status-code &rs)]
                   (ResponseStream.close rs)
                   (llm-api-error sc @"stream_error" @"")))
