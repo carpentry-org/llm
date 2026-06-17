@@ -98,7 +98,8 @@
                     <p>a chat request to an LLM provider.</p>
 <p>Build with <code>LLM.chat-request</code>, <code>LLM.chat-request-with-tools</code>,
 <code>LLM.chat-request-json</code>, or <code>LLM.chat-request-with-schema</code> rather than
-constructing directly.</p>
+constructing directly. Use the auto-generated <code>LLMRequest.set-*</code> functions
+to set optional sampling parameters (e.g. <code>(LLMRequest.set-top-p req 0.9)</code>).</p>
 <ul>
 <li><code>model</code>: provider-specific model identifier</li>
 <li><code>messages</code>: the conversation history</li>
@@ -108,6 +109,16 @@ constructing directly.</p>
 <li><code>format-mode</code>: <code>format-text</code>, <code>format-json</code>, or <code>format-json-schema</code></li>
 <li><code>format-schema</code>: JSON schema for structured output (used when mode is
 <code>format-json-schema</code>)</li>
+<li><code>top-p</code>: nucleus sampling threshold (0.0 to 1.0); negative means unset.
+Supported by all providers.</li>
+<li><code>top-k</code>: top-k sampling (positive integer); negative means unset.
+Supported by Anthropic, Ollama, and Gemini (ignored by OpenAI).</li>
+<li><code>frequency-penalty</code>: penalise repeated tokens (-2.0 to 2.0); values
+below -3.0 mean unset. Supported by OpenAI and Ollama.</li>
+<li><code>presence-penalty</code>: penalise tokens already present (-2.0 to 2.0);
+values below -3.0 mean unset. Supported by OpenAI and Ollama.</li>
+<li><code>seed</code>: deterministic sampling seed (non-negative integer); negative
+means unset. Supported by OpenAI and Ollama.</li>
 </ul>
 
                 </div>
@@ -192,6 +203,26 @@ constructing directly.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#frequency-penalty">
+                        <h3 id="frequency-penalty">
+                            frequency-penalty
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref Double a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>frequency-penalty</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#init">
                         <h3 id="init">
                             init
@@ -201,7 +232,7 @@ constructing directly.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [String, (Array Message), Int, Double, (Array ToolDef), Int, JSON] LLMRequest)
+                        (Fn [String, (Array Message), Int, Double, (Array ToolDef), Int, JSON, Double, Int, Double, Double, Int] LLMRequest)
                     </p>
                     <span>
                         
@@ -272,6 +303,26 @@ constructing directly.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#presence-penalty">
+                        <h3 id="presence-penalty">
+                            presence-penalty
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref Double a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>presence-penalty</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#prn">
                         <h3 id="prn">
                             prn
@@ -288,6 +339,26 @@ constructing directly.</p>
                     </span>
                     <p class="doc">
                         <p>converts a <code>LLMRequest</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#seed">
+                        <h3 id="seed">
+                            seed
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>seed</code> property of a <code>LLMRequest</code>.</p>
 
                     </p>
                 </div>
@@ -368,6 +439,46 @@ constructing directly.</p>
                     </span>
                     <p class="doc">
                         <p>sets the <code>format-schema</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-frequency-penalty">
+                        <h3 id="set-frequency-penalty">
+                            set-frequency-penalty
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, Double] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>frequency-penalty</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-frequency-penalty!">
+                        <h3 id="set-frequency-penalty!">
+                            set-frequency-penalty!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), Double] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>frequency-penalty</code> property of a <code>LLMRequest</code> in place.</p>
 
                     </p>
                 </div>
@@ -492,6 +603,86 @@ constructing directly.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-presence-penalty">
+                        <h3 id="set-presence-penalty">
+                            set-presence-penalty
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, Double] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>presence-penalty</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-presence-penalty!">
+                        <h3 id="set-presence-penalty!">
+                            set-presence-penalty!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), Double] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>presence-penalty</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-seed">
+                        <h3 id="set-seed">
+                            set-seed
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, Int] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>seed</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-seed!">
+                        <h3 id="set-seed!">
+                            set-seed!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), Int] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>seed</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#set-temperature">
                         <h3 id="set-temperature">
                             set-temperature
@@ -572,6 +763,86 @@ constructing directly.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-top-k">
+                        <h3 id="set-top-k">
+                            set-top-k
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, Int] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>top-k</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-top-k!">
+                        <h3 id="set-top-k!">
+                            set-top-k!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), Int] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>top-k</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-top-p">
+                        <h3 id="set-top-p">
+                            set-top-p
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, Double] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>top-p</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-top-p!">
+                        <h3 id="set-top-p!">
+                            set-top-p!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a), Double] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>top-p</code> property of a <code>LLMRequest</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#str">
                         <h3 id="str">
                             str
@@ -632,6 +903,46 @@ constructing directly.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#top-k">
+                        <h3 id="top-k">
+                            top-k
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>top-k</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#top-p">
+                        <h3 id="top-p">
+                            top-p
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMRequest a)] (Ref Double a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>top-p</code> property of a <code>LLMRequest</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#update-format-mode">
                         <h3 id="update-format-mode">
                             update-format-mode
@@ -668,6 +979,26 @@ constructing directly.</p>
                     </span>
                     <p class="doc">
                         <p>updates the <code>format-schema</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-frequency-penalty">
+                        <h3 id="update-frequency-penalty">
+                            update-frequency-penalty
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [Double] Double a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>frequency-penalty</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
@@ -732,6 +1063,46 @@ constructing directly.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#update-presence-penalty">
+                        <h3 id="update-presence-penalty">
+                            update-presence-penalty
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [Double] Double a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>presence-penalty</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-seed">
+                        <h3 id="update-seed">
+                            update-seed
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [Int] Int a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>seed</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#update-temperature">
                         <h3 id="update-temperature">
                             update-temperature
@@ -768,6 +1139,46 @@ constructing directly.</p>
                     </span>
                     <p class="doc">
                         <p>updates the <code>tools</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-top-k">
+                        <h3 id="update-top-k">
+                            update-top-k
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [Int] Int a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>top-k</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-top-p">
+                        <h3 id="update-top-p">
+                            update-top-p
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LLMRequest, (Ref (Fn [Double] Double a) b)] LLMRequest)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>top-p</code> property of a <code>LLMRequest</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

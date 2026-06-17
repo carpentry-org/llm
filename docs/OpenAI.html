@@ -98,6 +98,26 @@
                     
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#build-embedding-request">
+                        <h3 id="build-embedding-request">
+                            build-embedding-request
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref EmbeddingRequest a)] String)
+                    </p>
+                    <pre class="args">
+                        (build-embedding-request req)
+                    </pre>
+                    <p class="doc">
+                        <p>builds the JSON request body for the OpenAI embeddings API.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#build-request">
                         <h3 id="build-request">
                             build-request
@@ -134,6 +154,26 @@
                     </pre>
                     <p class="doc">
                         <p>builds a streaming OpenAI chat completions request.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#embedding-endpoint">
+                        <h3 id="embedding-endpoint">
+                            embedding-endpoint
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [a] String)
+                    </p>
+                    <pre class="args">
+                        (embedding-endpoint _config)
+                    </pre>
+                    <p class="doc">
+                        <p>returns the embeddings endpoint path.</p>
 
                     </p>
                 </div>
@@ -197,6 +237,26 @@
 Falls back to <code>reasoning_content</code> when <code>content</code> is empty (reasoning models
 via vLLM and similar). Thinking tokens are prefixed with a SOH byte (0x01)
 so callers can distinguish them from regular content tokens.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-embedding-response">
+                        <h3 id="parse-embedding-response">
+                            parse-embedding-response
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result EmbeddingResponse String))
+                    </p>
+                    <pre class="args">
+                        (parse-embedding-response body)
+                    </pre>
+                    <p class="doc">
+                        <p>parses an OpenAI embeddings API response.</p>
 
                     </p>
                 </div>

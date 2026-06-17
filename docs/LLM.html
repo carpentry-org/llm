@@ -150,6 +150,44 @@ the provider's error response. On transport failures, returns <code>LLMError.Tra
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#chat-loop">
+                        <h3 id="chat-loop">
+                            chat-loop
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), (Ref String b), (Array Message), Int, Double, (Ref (Array ToolDef) c), (Fn [(Ref ToolCall d)] String e), Int] (Result LLMResponse LLMError))
+                    </p>
+                    <pre class="args">
+                        (chat-loop config model messages max-tokens temperature tools handler max-iters)
+                    </pre>
+                    <p class="doc">
+                        <p>runs an agentic tool-use loop. Calls <code>chat</code> with the given
+tools, invokes <code>handler</code> for each tool call in the response, appends tool
+results to the conversation, and repeats until the model stops calling tools
+or <code>max-iters</code> iterations are reached.</p>
+<p>The handler receives a <code>(Ref ToolCall)</code> and returns the tool result as a
+<code>String</code>.</p>
+<p>Returns the final <code>(Result LLMResponse LLMError)</code>. If the iteration limit is
+reached, the last response is returned (it may still contain tool calls).</p>
+<pre><code>(let [config (LLM.ollama &quot;http://localhost:11434&quot;)
+      tools [(ToolDef.init @&quot;get_weather&quot; @&quot;Get weather&quot; schema)]
+      msgs [(Message.user &quot;Weather in Paris?&quot;)]
+      handler (fn [tc]
+                (if (= (ToolCall.name tc) &quot;get_weather&quot;)
+                  @&quot;22C, sunny&quot;
+                  @&quot;unknown tool&quot;))]
+  (match (LLM.chat-loop &amp;config &quot;llama3&quot; msgs 256 0.7 &amp;tools handler 10)
+    (Result.Success r) (println* (LLMResponse.content &amp;r))
+    (Result.Error e) (IO.errorln &amp;(LLMError.str &amp;e))))
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#chat-request">
                         <h3 id="chat-request">
                             chat-request
@@ -252,6 +290,61 @@ schema. The schema is a JSON value (use the <code>JSON</code> constructors).</p>
                         <p>sends a streaming chat request and returns an <code>LlmStream</code>.
 Poll the stream for tokens. Returns <code>(Result LlmStream LLMError)</code>. Checks
 the HTTP status code before returning the stream.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#embed">
+                        <h3 id="embed">
+                            embed
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), (Ref EmbeddingRequest b)] (Result EmbeddingResponse LLMError))
+                    </p>
+                    <pre class="args">
+                        (embed config req)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an embedding request to the configured provider.
+Returns <code>(Result EmbeddingResponse LLMError)</code>.</p>
+<p>Anthropic does not offer an embeddings API; calling this with an Anthropic
+config returns a <code>Transport</code> error.</p>
+<pre><code>(let [config (LLM.openai &quot;sk-...&quot;)
+      req (LLM.embedding-request &quot;text-embedding-3-small&quot;
+            [@&quot;hello&quot; @&quot;world&quot;])]
+  (match (LLM.embed &amp;config &amp;req)
+    (Result.Success r)
+      (println* (Array.length (EmbeddingResponse.embeddings &amp;r)))
+    (Result.Error e) (IO.errorln &amp;(LLMError.str &amp;e))))
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#embedding-request">
+                        <h3 id="embedding-request">
+                            embedding-request
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Array String)] EmbeddingRequest)
+                    </p>
+                    <pre class="args">
+                        (embedding-request model input)
+                    </pre>
+                    <p class="doc">
+                        <p>creates an embedding request.</p>
+<ul>
+<li><code>model</code>: the provider-specific embedding model identifier</li>
+<li><code>input</code>: an array of text strings to embed</li>
+</ul>
 
                     </p>
                 </div>
