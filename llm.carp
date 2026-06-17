@@ -1019,28 +1019,74 @@ supported.")
 ; Provider: Gemini
 ; ===========================================================================
 
-(doc gemini-message-to-json "converts a `Message` to Gemini's `contents`
-element format. When images are present, adds `inlineData` parts alongside
-the text part.")
+(doc gemini-message-to-json "converts a `Message` to Gemini’s `contents`
+element format. Maps roles to Gemini wire names (`assistant` → `model`),
+serializes tool results as `functionResponse` parts with role `user`, and
+assistant tool calls as `functionCall` parts. When images are present on
+user messages, adds `inlineData` parts alongside the text part.")
 (defn gemini-message-to-json [m]
-  (let [text-part [(Box.init
-                     (JSON.obj
-                       [(JSON.entry @"text" (JSON.Str @(Message.content m)))]))]
-        img-parts (Array.copy-map
-          &(fn [img]
-            (Box.init
-              (JSON.obj
-                [(JSON.entry @"inlineData"
-                             (JSON.obj
-                               [(JSON.entry @"mimeType"
-                                            (JSON.Str @(ImageContent.media-type img)))
-                                (JSON.entry @"data"
-                                            (JSON.Str @(ImageContent.data img)))]))])))
-          (Message.images m))
-        parts (Array.concat &[text-part img-parts])]
-    (JSON.obj
-      [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
-       (JSON.entry @"parts" (JSON.Arr parts))])))
+  (match-ref (Message.role m)
+    (Role.Tool)
+    ; Gemini: tool results must be role "user" with functionResponse parts.
+    ; tool-call-id stores the function name for Gemini (no call IDs).
+    (let [resp-obj (match (JSON.parse (Message.content m))
+            (Result.Success j) j
+            _
+              (JSON.obj [(JSON.entry @"result" (JSON.Str @(Message.content m)))]))]
+      (JSON.obj
+        [(JSON.entry @"role" (JSON.Str @"user"))
+         (JSON.entry @"parts"
+                     (JSON.Arr
+                       [(Box.init
+                          (JSON.obj
+                            [(JSON.entry @"functionResponse"
+                                         (JSON.obj
+                                           [(JSON.entry @"name"
+                                                        (JSON.Str @(Message.tool-call-id m)))
+                                            (JSON.entry @"response" resp-obj)]))]))]))]))
+    (Role.Assistant)
+    ; Gemini uses "model" for assistant, and functionCall parts for tool calls.
+    (let [text-part (if (> (String.length (Message.content m)) 0)
+            [(Box.init
+               (JSON.obj [(JSON.entry @"text" (JSON.Str @(Message.content m)))]))]
+            (the (Array (Box JSON)) []))
+          fc-parts (Array.copy-map
+            &(fn [tc]
+              (let [args-json (match (JSON.parse (ToolCall.arguments tc))
+                      (Result.Success j) j
+                      _ (JSON.Str @(ToolCall.arguments tc)))]
+                (Box.init
+                  (JSON.obj
+                    [(JSON.entry @"functionCall"
+                                 (JSON.obj
+                                   [(JSON.entry @"name"
+                                                (JSON.Str @(ToolCall.name tc)))
+                                    (JSON.entry @"args" args-json)]))]))))
+            (Message.tool-calls m))
+          parts (Array.concat &[text-part fc-parts])]
+      (JSON.obj
+        [(JSON.entry @"role" (JSON.Str @"model"))
+         (JSON.entry @"parts" (JSON.Arr parts))]))
+    _
+    ; User (system is filtered before reaching here)
+    (let [text-part [(Box.init
+                       (JSON.obj
+                         [(JSON.entry @"text" (JSON.Str @(Message.content m)))]))]
+          img-parts (Array.copy-map
+            &(fn [img]
+              (Box.init
+                (JSON.obj
+                  [(JSON.entry @"inlineData"
+                               (JSON.obj
+                                 [(JSON.entry @"mimeType"
+                                              (JSON.Str @(ImageContent.media-type img)))
+                                  (JSON.entry @"data"
+                                              (JSON.Str @(ImageContent.data img)))]))])))
+            (Message.images m))
+          parts (Array.concat &[text-part img-parts])]
+      (JSON.obj
+        [(JSON.entry @"role" (JSON.Str @"user"))
+         (JSON.entry @"parts" (JSON.Arr parts))]))))
 
 (defmodule Gemini
   (hidden body)
@@ -1696,9 +1742,16 @@ the HTTP status code before returning the stream.")
               (if (< @(ResponseStream.status-code &rs) 400)
                 (Result.Success
                   (LlmStream.init rs @"" @name @"" @"" @"" [] false))
-                (let-do [sc @(ResponseStream.status-code &rs)]
+                (let-do [sc @(ResponseStream.status-code &rs)
+                         err-body @""
+                         drain-done false]
+                  (while (not drain-done)
+                    (match (ResponseStream.poll &rs)
+                      (Maybe.Nothing) (set! drain-done true)
+                      (Maybe.Just chunk)
+                        (set! err-body (String.concat &[err-body chunk]))))
                   (ResponseStream.close rs)
-                  (llm-api-error sc @"stream_error" @"")))
+                  (llm-parse-error name sc &err-body)))
             (Result.Error e) (llm-transport-error e)))))))
 
 ; ===========================================================================
@@ -1714,15 +1767,16 @@ the current iteration index is below `max-iters`.")
 (doc llm-collect-tool-results "invokes `handler` for each tool call in `tcs`
 and returns an array of tool-result `Message`s, one per call, preserving
 order. Each result message carries the tool-call ID from the corresponding
-`ToolCall`.")
+`ToolCall`, falling back to the tool name when the ID is empty (Gemini).")
 (defn llm-collect-tool-results [tcs handler]
   (let-do [results (the (Array Message) [])]
     (for [j 0 (Array.length tcs)]
       (let [tc (Array.unsafe-nth tcs j)
-            res (~handler tc)]
-        (set! results
-              (Array.push-back results
-                               (Message.tool-result (ToolCall.id tc) &res)))))
+            res (~handler tc)
+            id (if (= (String.length (ToolCall.id tc)) 0)
+              @(ToolCall.name tc)
+              @(ToolCall.id tc))]
+        (set! results (Array.push-back results (Message.tool-result &id &res)))))
     results))
 
 (doc llm-apply-loop-step "performs one iteration of the tool-use loop on the
