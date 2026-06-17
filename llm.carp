@@ -631,7 +631,9 @@ so callers can distinguish them from regular content tokens.")
 
   (doc parse-stream-event "parses an OpenAI streaming SSE line into a
 `StreamChunk`. Handles text deltas, incremental tool call data (start and
-argument fragments), reasoning tokens, and the `[DONE]` sentinel.")
+argument fragments), reasoning tokens, and the `[DONE]` sentinel. Only the
+first tool call delta per chunk is examined — parallel tool calls (multiple
+entries in the `tool_calls` array) are not supported.")
   (defn parse-stream-event [line]
     (cond
       (String.starts-with? line "data: [DONE]") (StreamChunk.ChunkDone)
@@ -656,11 +658,12 @@ argument fragments), reasoning tokens, and the `[DONE]` sentinel.")
                                         args (llm-json-str &tc
                                                            &[@"function"
                                                              @"arguments"])]
-                                    (if (> (String.length &id) 0)
-                                      (StreamChunk.ChunkToolStart id name args)
-                                      (if (> (String.length &args) 0)
+                                    (cond
+                                      (> (String.length &id) 0)
+                                        (StreamChunk.ChunkToolStart id name args)
+                                      (> (String.length &args) 0)
                                         (StreamChunk.ChunkToolDelta args)
-                                        (StreamChunk.ChunkSkip))))
+                                      (StreamChunk.ChunkSkip)))
                                 _ (StreamChunk.ChunkSkip))
                             _
                               (let [think (llm-json-str &choice
@@ -987,7 +990,9 @@ them from regular content tokens.")
 
   (doc parse-stream-event "parses an Ollama streaming NDJSON line into a
 `StreamChunk`. Extracts tool calls from the `done=true` final message. Text
-and thinking content come from earlier `done=false` messages.")
+and thinking content come from earlier `done=false` messages. Only the first
+tool call in the final message is extracted — parallel tool calls are not
+supported.")
   (defn parse-stream-event [line]
     (match (JSON.parse line)
       (Result.Success j)
@@ -1220,7 +1225,10 @@ The `?alt=sse` parameter enables Server-Sent Events streaming.")
 
   (doc parse-stream-event "parses a Gemini streaming SSE line into a
 `StreamChunk`. Extracts function calls as complete `ChunkToolFull` events
-and text content as `ChunkText`.")
+and text content as `ChunkText`. Note: Gemini does not provide tool call
+IDs, so the resulting `ToolCall` will have an empty string as its ID.
+Only the first part of the response is examined — multiple parallel tool
+calls in a single chunk are not supported.")
   (defn parse-stream-event [line]
     (if (String.starts-with? line "data: ")
       (let [json-str (String.byte-slice line 6 (String.length line))]
@@ -1591,6 +1599,11 @@ support.")
 `Nothing` when complete. Unlike `poll`, this handles tool calls from streaming
 responses — incremental tool call data is accumulated internally and emitted
 as complete `StreamEvent.ToolCallEvent` values.
+
+Known limitations: only the first tool call per chunk is processed — parallel
+tool calls (multiple tool calls in a single response) are not supported and
+will produce incorrect results. Gemini does not provide tool call IDs, so
+`ToolCall` values from Gemini streams will have an empty string as their ID.
 
 ```
 (while-do true
