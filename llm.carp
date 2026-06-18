@@ -337,41 +337,79 @@ otherwise.")
                      (JSON.entry @"tool_calls" (llm-tool-calls-to-json tcs)))
     entries))
 
+(doc llm-anthropic-tool-use-block "serializes a single `ToolCall` to an
+Anthropic `tool_use` content block JSON object.")
+(defn llm-anthropic-tool-use-block [tc]
+  (let [inp (match (JSON.parse (ToolCall.arguments tc))
+          (Result.Success j) j
+          _ (JSON.Str @(ToolCall.arguments tc)))]
+    (Box.init
+      (JSON.obj
+        [(JSON.entry @"type" (JSON.Str @"tool_use"))
+         (JSON.entry @"id" (JSON.Str @(ToolCall.id tc)))
+         (JSON.entry @"name" (JSON.Str @(ToolCall.name tc)))
+         (JSON.entry @"input" inp)]))))
+
 (doc llm-message-to-anthropic-json "serializes a `Message` to the Anthropic
-wire format. When images are present, content becomes an array with `text`
-and `image` blocks using Anthropic's base64 source format.")
+wire format. Tool result messages become `{\"role\": \"user\", \"content\":
+[{\"type\": \"tool_result\", ...}]}`. Assistant tool-call messages use
+`tool_use` content blocks. When images are present, content becomes an array
+with `text` and `image` blocks using Anthropic's base64 source format.")
 (defn llm-message-to-anthropic-json [m]
-  (let [content-val (if (> (Array.length (Message.images m)) 0)
-          (let [text-part [(Box.init
-                             (JSON.obj
-                               [(JSON.entry @"type" (JSON.Str @"text"))
-                                (JSON.entry @"text"
-                                            (JSON.Str @(Message.content m)))]))]
-                img-parts (Array.copy-map
-                  &(fn [img]
-                    (Box.init
-                      (JSON.obj
-                        [(JSON.entry @"type" (JSON.Str @"image"))
-                         (JSON.entry @"source"
-                                     (JSON.obj
-                                       [(JSON.entry @"type" (JSON.Str @"base64"))
-                                        (JSON.entry @"media_type"
-                                                    (JSON.Str @(ImageContent.media-type img)))
-                                        (JSON.entry @"data"
-                                                    (JSON.Str @(ImageContent.data img)))]))])))
-                  (Message.images m))]
-            (JSON.Arr (Array.concat &[text-part img-parts])))
-          (JSON.Str @(Message.content m)))
-        base [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
-              (JSON.entry @"content" content-val)]
-        with-tool-id (if (> (String.length (Message.tool-call-id m)) 0)
-          (Array.push-back base
-                           (JSON.entry @"tool_call_id"
-                                       (JSON.Str @(Message.tool-call-id m))))
-          base)
-        with-calls (llm-append-tool-calls-entry with-tool-id
-                                                (Message.tool-calls m))]
-    (JSON.obj with-calls)))
+  (cond
+    ; Tool result message -> role: user, content: [{type: tool_result, ...}]
+    (> (String.length (Message.tool-call-id m)) 0)
+    (JSON.obj
+      [(JSON.entry @"role" (JSON.Str @"user"))
+       (JSON.entry @"content"
+                   (JSON.Arr
+                     [(Box.init
+                        (JSON.obj
+                          [(JSON.entry @"type" (JSON.Str @"tool_result"))
+                           (JSON.entry @"tool_use_id"
+                                       (JSON.Str @(Message.tool-call-id m)))
+                           (JSON.entry @"content"
+                                       (JSON.Str @(Message.content m)))]))]))])
+    ; Assistant message with tool calls -> content blocks with tool_use
+    (> (Array.length (Message.tool-calls m)) 0)
+    (let [text-parts (if (> (String.length (Message.content m)) 0)
+            [(Box.init
+               (JSON.obj
+                 [(JSON.entry @"type" (JSON.Str @"text"))
+                  (JSON.entry @"text" (JSON.Str @(Message.content m)))]))]
+            [])
+          tool-parts (Array.copy-map &llm-anthropic-tool-use-block
+                                     (Message.tool-calls m))]
+      (JSON.obj
+        [(JSON.entry @"role" (JSON.Str @"assistant"))
+         (JSON.entry @"content"
+                     (JSON.Arr (Array.concat &[text-parts tool-parts])))]))
+    ; Regular message (user/assistant/system without tool calls)
+    (let [content-val (if (> (Array.length (Message.images m)) 0)
+            (let [text-part [(Box.init
+                               (JSON.obj
+                                 [(JSON.entry @"type" (JSON.Str @"text"))
+                                  (JSON.entry @"text"
+                                              (JSON.Str @(Message.content m)))]))]
+                  img-parts (Array.copy-map
+                    &(fn [img]
+                      (Box.init
+                        (JSON.obj
+                          [(JSON.entry @"type" (JSON.Str @"image"))
+                           (JSON.entry @"source"
+                                       (JSON.obj
+                                         [(JSON.entry @"type"
+                                                      (JSON.Str @"base64"))
+                                          (JSON.entry @"media_type"
+                                                      (JSON.Str @(ImageContent.media-type img)))
+                                          (JSON.entry @"data"
+                                                      (JSON.Str @(ImageContent.data img)))]))])))
+                    (Message.images m))]
+              (JSON.Arr (Array.concat &[text-part img-parts])))
+            (JSON.Str @(Message.content m)))]
+      (JSON.obj
+        [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
+         (JSON.entry @"content" content-val)]))))
 
 (doc llm-message-to-ollama-json "serializes a `Message` to the Ollama wire
 format. When images are present, adds an `images` array of base64 strings
@@ -816,7 +854,10 @@ entries in the `tool_calls` array) are not supported.")
   (doc build-stream-request "builds a streaming Anthropic messages request.")
   (defn build-stream-request [req] (Anthropic.body req true))
 
-  (doc parse-delta "extracts text from an Anthropic streaming SSE data line.")
+  (doc parse-delta "extracts text from an Anthropic streaming SSE data line.
+Handles both regular `text_delta` and `thinking_delta` events. Thinking
+tokens are prefixed with a SOH byte (0x01) so callers can distinguish them
+from regular content tokens.")
   (defn parse-delta [line]
     (if (String.starts-with? line "data: ")
       (let [json-str (String.byte-slice line 6 (String.length line))]
@@ -825,7 +866,16 @@ entries in the `tool_calls` array) are not supported.")
             (match (JSON.get &j "type")
               (Maybe.Just t)
                 (if (= &(Maybe.from (JSON.as-str &t) @"") "content_block_delta")
-                  (Maybe.Just (llm-json-str &j &[@"delta" @"text"]))
+                  (let [delta-type (llm-json-str &j &[@"delta" @"type"])]
+                    (if (= &delta-type "thinking_delta")
+                      (let [think (llm-json-str &j &[@"delta" @"thinking"])]
+                        (if (> (String.length &think) 0)
+                          (Maybe.Just (String.concat &[(soh-prefix) think]))
+                          (Maybe.Nothing)))
+                      (let [tok (llm-json-str &j &[@"delta" @"text"])]
+                        (if (> (String.length &tok) 0)
+                          (Maybe.Just tok)
+                          (Maybe.Nothing)))))
                   (Maybe.Nothing))
               _ (Maybe.Nothing))
           _ (Maybe.Nothing)))
@@ -1247,7 +1297,9 @@ The `?alt=sse` parameter enables Server-Sent Events streaming.")
   (doc build-stream-request "builds a streaming Gemini generateContent request.")
   (defn build-stream-request [req] (Gemini.body req true))
 
-  (doc parse-delta "extracts text from a Gemini streaming SSE data line.")
+  (doc parse-delta "extracts text from a Gemini streaming SSE data line.
+Parts with `\"thought\": true` are thinking tokens and are prefixed with a
+SOH byte (0x01) so callers can distinguish them from regular content tokens.")
   (defn parse-delta [line]
     (if (String.starts-with? line "data: ")
       (let [json-str (String.byte-slice line 6 (String.length line))]
@@ -1261,7 +1313,16 @@ The `?alt=sse` parameter enables Server-Sent Events streaming.")
                       (Maybe.Just parts)
                         (match (JSON.nth &parts 0)
                           (Maybe.Just part)
-                            (Maybe.Just (llm-json-str &part &[@"text"]))
+                            (let [tok (llm-json-str &part &[@"text"])
+                                  is-thought (match (JSON.get &part "thought")
+                                    (Maybe.Just v)
+                                      (Maybe.from (JSON.as-bool &v) false)
+                                    _ false)]
+                              (if (> (String.length &tok) 0)
+                                (if is-thought
+                                  (Maybe.Just (String.concat &[(soh-prefix) tok]))
+                                  (Maybe.Just tok))
+                                (Maybe.Nothing)))
                           _ (Maybe.Nothing))
                       _ (Maybe.Nothing))
                   _ (Maybe.Nothing))
