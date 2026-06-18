@@ -1944,4 +1944,158 @@
     (match (llm-stream-parse-event "bogus" "anything")
       (StreamChunk.ChunkSkip) true
       _ false)
-    "llm-stream-parse-event returns ChunkSkip for unknown provider"))
+    "llm-stream-parse-event returns ChunkSkip for unknown provider")
+
+  ; =========================================================================
+  ; Gemini tool message serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [msg (Message.tool-result "get_weather" "sunny")
+          j (gemini-message-to-json &msg)]
+      (= &(llm-json-str &j &[@"role"]) "user"))
+    "Gemini tool message uses role user instead of tool")
+
+  (assert-true test
+    (let [msg (Message.tool-result "get_weather" "sunny")
+          j (gemini-message-to-json &msg)]
+      (match (JSON.get &j "parts")
+        (Maybe.Just parts)
+          (match (JSON.nth &parts 0)
+            (Maybe.Just part)
+              (=
+                &(llm-json-str &part &[@"functionResponse" @"name"])
+                "get_weather")
+            _ false)
+        _ false))
+    "Gemini tool message has functionResponse with correct name")
+
+  (assert-true test
+    (let [msg (Message.tool-result "get_weather" "sunny")
+          j (gemini-message-to-json &msg)]
+      (match (JSON.get &j "parts")
+        (Maybe.Just parts)
+          (match (JSON.nth &parts 0)
+            (Maybe.Just part)
+              (=
+                &(llm-json-str &part
+                               &[@"functionResponse" @"response" @"result"])
+                "sunny")
+            _ false)
+        _ false))
+    "Gemini tool message wraps plain text in result object")
+
+  (assert-true test
+    (let [msg (Message.tool-result "f" "{\"temp\":22}")
+          j (gemini-message-to-json &msg)]
+      (match (JSON.get &j "parts")
+        (Maybe.Just parts)
+          (match (JSON.nth &parts 0)
+            (Maybe.Just part)
+              (match (JSON.get-in &part
+                                  &[@"functionResponse" @"response" @"temp"])
+                (Maybe.Just v) (= (Maybe.from (JSON.as-num &v) 0.0) 22.0)
+                _ false)
+            _ false)
+        _ false))
+    "Gemini tool message parses JSON content as response object")
+
+  ; =========================================================================
+  ; Gemini assistant message serialization
+  ; =========================================================================
+
+  (assert-true test
+    (let [msg (Message.assistant "hello")
+          j (gemini-message-to-json &msg)]
+      (= &(llm-json-str &j &[@"role"]) "model"))
+    "Gemini assistant message uses role model")
+
+  (assert-true test
+    (let [msg (Message.init (Role.Assistant)
+                            @""
+                            [(ToolCall.init @""
+                                            @"get_weather"
+                                            @"{\"city\":\"Paris\"}")]
+                            @""
+                            [])
+          j (gemini-message-to-json &msg)]
+      (match (JSON.get &j "parts")
+        (Maybe.Just parts)
+          (match (JSON.nth &parts 0)
+            (Maybe.Just part)
+              (= &(llm-json-str &part &[@"functionCall" @"name"]) "get_weather")
+            _ false)
+        _ false))
+    "Gemini assistant message serializes tool calls as functionCall parts")
+
+  (assert-true test
+    (let [msg (Message.init (Role.Assistant)
+                            @""
+                            [(ToolCall.init @""
+                                            @"get_weather"
+                                            @"{\"city\":\"Paris\"}")]
+                            @""
+                            [])
+          j (gemini-message-to-json &msg)]
+      (match (JSON.get &j "parts")
+        (Maybe.Just parts)
+          (match (JSON.nth &parts 0)
+            (Maybe.Just part)
+              (=
+                &(llm-json-str &part &[@"functionCall" @"args" @"city"])
+                "Paris")
+            _ false)
+        _ false))
+    "Gemini functionCall includes parsed args")
+
+  ; =========================================================================
+  ; Gemini tool-call ID fallback to name
+  ; =========================================================================
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"" @"get_weather" @"{}")]
+          handler (fn [tc] @"sunny")
+          results (llm-collect-tool-results &tcs &handler)]
+      (= (Message.tool-call-id (Array.unsafe-nth &results 0)) "get_weather"))
+    "llm-collect-tool-results uses tool name when ID is empty")
+
+  (assert-true test
+    (let [tcs [(ToolCall.init @"call_123" @"get_weather" @"{}")]
+          handler (fn [tc] @"sunny")
+          results (llm-collect-tool-results &tcs &handler)]
+      (= (Message.tool-call-id (Array.unsafe-nth &results 0)) "call_123"))
+    "llm-collect-tool-results prefers call ID when present")
+
+  ; =========================================================================
+  ; Gemini request with tool-result messages
+  ; =========================================================================
+
+  (assert-true test
+    (let [req (LLM.chat-request "gemini-pro"
+                                [(Message.user "weather?")
+                                 (Message.tool-result "get_weather" "sunny")]
+                                100
+                                0.5)
+          body (Gemini.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "contents")
+            (Maybe.Just arr)
+              (match (JSON.nth &arr 1)
+                (Maybe.Just entry)
+                  (and
+                    (= &(llm-json-str &entry &[@"role"]) "user")
+                    (match (JSON.get &entry "parts")
+                      (Maybe.Just parts)
+                        (match (JSON.nth &parts 0)
+                          (Maybe.Just part)
+                            (=
+                              &(llm-json-str &part
+                                             &[@"functionResponse" @"name"])
+                              "get_weather")
+                          _ false)
+                      _ false))
+                _ false)
+            _ false)
+        _ false))
+    "Gemini build-request serializes tool-result as functionResponse"))
