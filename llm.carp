@@ -883,7 +883,9 @@ from regular content tokens.")
 
   (doc parse-stream-event "parses an Anthropic streaming SSE line into a
 `StreamChunk`. Handles `content_block_start` (tool use), `content_block_delta`
-(text and input JSON), `content_block_stop`, and `message_stop`.")
+(text, thinking, and input JSON), `content_block_stop`, and `message_stop`.
+Thinking tokens (`thinking_delta`) are emitted as `ChunkText` with a SOH
+byte prefix, matching the convention used by OpenAI and Ollama.")
   (defn parse-stream-event [line]
     (if (String.starts-with? line "data: ")
       (let [json-str (String.byte-slice line 6 (String.length line))]
@@ -906,6 +908,12 @@ from regular content tokens.")
                       (= &delta-type "text_delta")
                         (StreamChunk.ChunkText (llm-json-str &j
                                                              &[@"delta" @"text"]))
+                      (= &delta-type "thinking_delta")
+                        (let [think (llm-json-str &j &[@"delta" @"thinking"])]
+                          (if (> (String.length &think) 0)
+                            (StreamChunk.ChunkText (String.concat &[(soh-prefix)
+                                                                    think]))
+                            (StreamChunk.ChunkSkip)))
                       (= &delta-type "input_json_delta")
                         (StreamChunk.ChunkToolDelta
                           (llm-json-str &j &[@"delta" @"partial_json"]))

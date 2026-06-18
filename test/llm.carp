@@ -1775,6 +1775,23 @@
       _ false)
     "Anthropic parse-stream-event returns ChunkDone for message_stop")
 
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"let me think\"}}"]
+      (match (Anthropic.parse-stream-event line)
+        (StreamChunk.ChunkText tok)
+          (and
+            (= (Char.to-int (String.char-at &tok 0)) 1)
+            (= &(String.suffix &tok 1) "let me think"))
+        _ false))
+    "Anthropic parse-stream-event prefixes thinking_delta with SOH")
+
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\"}}"]
+      (match (Anthropic.parse-stream-event line)
+        (StreamChunk.ChunkSkip) true
+        _ false))
+    "Anthropic parse-stream-event returns ChunkSkip for empty thinking_delta")
+
   ; =========================================================================
   ; Ollama parse-stream-event
   ; =========================================================================
