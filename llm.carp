@@ -1,10 +1,6 @@
 (load "git@github.com:carpentry-org/http-client@0.2.1")
 (load "git@github.com:carpentry-org/json@0.3.0")
 
-; ===========================================================================
-; Common types
-; ===========================================================================
-
 (doc Role "is the role of a chat message. `System` for instructions, `User`
 for user input, `Assistant` for model responses, `Tool` for tool result
 messages.")
@@ -57,7 +53,6 @@ directly.")
    tool-call-id String
    images (Array ImageContent)])
 
-; Response format modes for LLMRequest.format-mode
 (doc format-text "format-mode for plain text responses (no constraint).")
 (def format-text 0)
 (doc format-json "format-mode for responses constrained to any valid JSON.")
@@ -153,10 +148,7 @@ Use `LlmStream.poll-event` to receive these events. Returns
   (Text [String])
   (ToolCallEvent [ToolCall]))
 
-; Internal streaming parse result — not part of the public API.
-; Each provider's `parse-stream-event` returns one of these to indicate what
-; a single SSE/NDJSON line contains. `poll-event` accumulates incremental
-; tool-call data and emits complete `StreamEvent`s.
+; Internal: what a single SSE/NDJSON line parsed to.
 (deftype StreamChunk
   (ChunkText [String])
   (ChunkToolStart [String String String])
@@ -180,10 +172,6 @@ rather than constructing directly.
    base-url String
    api-key String
    api-version String])
-
-; ===========================================================================
-; JSON helpers
-; ===========================================================================
 
 (defmodule Role
   (doc str "returns the wire-format string for a role (`\"system\"`, `\"user\"`,
@@ -262,16 +250,9 @@ array of content parts (OpenAI format).")
                                                   (Message.tool-calls m))]
       (JSON.obj with-calls))))
 
-; ===========================================================================
-; Internal helpers
-; ===========================================================================
-; These are top-level (not inside a defmodule) because they're shared across
-; the provider modules and Carp's module visibility rules make cross-module
-; private helpers awkward. Treat everything prefixed with `llm-` or
-; `gemini-` as implementation detail — not part of the public API.
+; `llm-`/`gemini-` prefixed top-level functions are internal implementation
+; detail, shared across the provider modules.
 
-(doc llm-tooldef-to-openai-json "converts a `ToolDef` to OpenAI's function
-tool format, which is also what Ollama accepts.")
 (defn llm-tooldef-to-openai-json [td]
   (JSON.obj
     [(JSON.entry @"type" (JSON.Str @"function"))
@@ -282,8 +263,6 @@ tool format, which is also what Ollama accepts.")
                                 (JSON.Str @(ToolDef.description td)))
                     (JSON.entry @"parameters" @(ToolDef.parameters td))]))]))
 
-(doc llm-parse-openai-tool-calls "extracts `tool_calls` from an OpenAI or
-Ollama response message JSON value, returning an array of `ToolCall`s.")
 (defn llm-parse-openai-tool-calls [j]
   (match (JSON.get j "tool_calls")
     (Maybe.Just arr)
@@ -302,14 +281,9 @@ Ollama response message JSON value, returning an array of `ToolCall`s.")
         _ [])
     _ []))
 
-(doc llm-messages-to-json "serializes an array of `Message`s to a `JSON.Arr`
-of objects using the OpenAI wire format.")
 (defn llm-messages-to-json [msgs]
   (JSON.Arr (Array.copy-map &(fn [m] (Box.init (Message.to-json m))) msgs)))
 
-(doc llm-tool-call-to-json "serializes a single `ToolCall` to a boxed JSON
-object in the OpenAI function-call wire format. Arguments are re-parsed from
-their string form; if parsing fails, the raw string is used.")
 (defn llm-tool-call-to-json [tc]
   (let [args-json (match (JSON.parse (ToolCall.arguments tc))
           (Result.Success j) j
@@ -323,22 +297,15 @@ their string form; if parsing fails, the raw string is used.")
                        [(JSON.entry @"name" (JSON.Str @(ToolCall.name tc)))
                         (JSON.entry @"arguments" args-json)]))]))))
 
-(doc llm-tool-calls-to-json "serializes an array of `ToolCall`s to a
-`JSON.Arr` in the OpenAI function-call wire format.")
 (defn llm-tool-calls-to-json [tcs]
   (JSON.Arr (Array.copy-map &llm-tool-call-to-json tcs)))
 
-(doc llm-append-tool-calls-entry "appends a `\"tool_calls\"` JSON entry to the
-given entries array if the message has tool calls. Returns the array unchanged
-otherwise.")
 (defn llm-append-tool-calls-entry [entries tcs]
   (if (> (Array.length tcs) 0)
     (Array.push-back entries
                      (JSON.entry @"tool_calls" (llm-tool-calls-to-json tcs)))
     entries))
 
-(doc llm-anthropic-tool-use-block "serializes a single `ToolCall` to an
-Anthropic `tool_use` content block JSON object.")
 (defn llm-anthropic-tool-use-block [tc]
   (let [inp (match (JSON.parse (ToolCall.arguments tc))
           (Result.Success j) j
@@ -350,11 +317,6 @@ Anthropic `tool_use` content block JSON object.")
          (JSON.entry @"name" (JSON.Str @(ToolCall.name tc)))
          (JSON.entry @"input" inp)]))))
 
-(doc llm-message-to-anthropic-json "serializes a `Message` to the Anthropic
-wire format. Tool result messages become `{\"role\": \"user\", \"content\":
-[{\"type\": \"tool_result\", ...}]}`. Assistant tool-call messages use
-`tool_use` content blocks. When images are present, content becomes an array
-with `text` and `image` blocks using Anthropic's base64 source format.")
 (defn llm-message-to-anthropic-json [m]
   (cond
     ; Tool result message -> role: user, content: [{type: tool_result, ...}]
@@ -411,9 +373,6 @@ with `text` and `image` blocks using Anthropic's base64 source format.")
         [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
          (JSON.entry @"content" content-val)]))))
 
-(doc llm-message-to-ollama-json "serializes a `Message` to the Ollama wire
-format. When images are present, adds an `images` array of base64 strings
-at the message level (content stays a string).")
 (defn llm-message-to-ollama-json [m]
   (let [base [(JSON.entry @"role" (JSON.Str (Role.str (Message.role m))))
               (JSON.entry @"content" (JSON.Str @(Message.content m)))]
@@ -435,16 +394,11 @@ at the message level (content stays a string).")
                                                 (Message.tool-calls m))]
     (JSON.obj with-calls)))
 
-(doc llm-filter-non-system "returns only the non-system messages from the
-given array. Used by providers that send system prompts in a dedicated field.")
 (defn llm-filter-non-system [msgs]
   (Array.copy-filter
     &(fn [m] (match-ref (Message.role m) (Role.System) false _ true))
     msgs))
 
-(doc llm-system-text "joins all system messages in the array into a single
-newline-separated string. Returns `(Maybe.Nothing)` if there are no system
-messages.")
 (defn llm-system-text [msgs]
   (let [sys-msgs (Array.copy-filter
           &(fn [m] (match-ref (Message.role m) (Role.System) true _ false))
@@ -454,37 +408,24 @@ messages.")
       (Maybe.Just (String.join "
 " &(Array.copy-map &(fn [m] @(Message.content m)) &sys-msgs))))))
 
-(doc llm-json-to-str "serializes a JSON value to a string. Returns the empty
-string on error (which only happens for `NaN` or infinity numeric values).")
 (defn llm-json-to-str [j]
   (match (JSON.str j) (Result.Success s) s (Result.Error _) @""))
 
-(doc llm-json-parse "parses a JSON string, collapsing the specific parse error
-type into a plain `String` error for use in our `Result` chains.")
 (defn llm-json-parse [s]
   (match (JSON.parse s)
     (Result.Success j) (Result.Success j)
     (Result.Error _) (Result.Error @"JSON parse error")))
 
-(doc llm-transport-error "wraps a message string in an `LLMError.Transport`
-result.")
 (defn llm-transport-error [msg] (Result.Error (LLMError.Transport msg)))
 
-(doc llm-api-error "constructs an `LLMError.Api` result from an HTTP status
-code, error type, and message.")
 (defn llm-api-error [code typ msg] (Result.Error (LLMError.Api code typ msg)))
 
-(doc llm-parse-error-body "parses a provider error response body using the
-given JSON key paths to extract the error type and message. Falls back to a
-generic error with the raw body on parse failure.")
 (defn llm-parse-error-body [code body type-path msg-path]
   (match (llm-json-parse body)
     (Result.Success j)
       (llm-api-error code (llm-json-str &j type-path) (llm-json-str &j msg-path))
     _ (llm-api-error code @"unknown" @body)))
 
-(doc llm-parse-error "parses a provider-specific error response into an
-`LLMError.Api`. Dispatches on the provider name.")
 (defn llm-parse-error [provider code body]
   (cond
     (= provider "openai")
@@ -501,23 +442,15 @@ generic error with the raw body on parse failure.")
     (llm-parse-error-body code body &[@"error" @"status"] &[@"error" @"message"])
     (llm-api-error code @"unknown" @body)))
 
-(doc llm-json-int "extracts an integer from a JSON path. Returns `0` if the
-path is missing or the value isn't a number.")
 (defn llm-json-int [j keys]
   (match (JSON.get-in j keys)
     (Maybe.Just n) (Double.to-int (Maybe.from (JSON.as-num &n) 0.0))
     _ 0))
 
-(doc llm-json-str "extracts a string from a JSON path. Returns the empty
-string if the path is missing or the value isn't a string.")
 (defn llm-json-str [j keys]
   (match (JSON.get-in j keys)
     (Maybe.Just v) (Maybe.from (JSON.as-str &v) @"")
     _ @""))
-
-; ===========================================================================
-; Provider: OpenAI
-; ===========================================================================
 
 (defmodule OpenAI
   (hidden add-format)
@@ -592,11 +525,8 @@ string if the path is missing or the value isn't a string.")
             with-pres)]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc build-request
-    "builds the JSON request body for the OpenAI chat completions API.")
   (defn build-request [req] (OpenAI.body req false))
 
-  (doc parse-response "parses an OpenAI chat completions response.")
   (defn parse-response [body]
     (match (llm-json-parse body)
       (Result.Error e) (Result.Error e)
@@ -625,24 +555,16 @@ string if the path is missing or the value isn't a string.")
                               output-tokens
                               tool-calls)))))
 
-  (doc endpoint "returns the chat completions endpoint path.")
   (defn endpoint [_config] @"/v1/chat/completions")
 
-  (doc headers "returns the HTTP headers for an OpenAI request.")
   (defn headers [config body-len]
     (let [auth (String.concat &[@"Bearer " @(ProviderConfig.api-key config)])]
       {@"Content-Type" [@"application/json"]
        @"Authorization" [auth]
        @"Content-Length" [(Int.str body-len)]}))
 
-  (doc build-stream-request
-    "builds a streaming OpenAI chat completions request.")
   (defn build-stream-request [req] (OpenAI.body req true))
 
-  (doc parse-delta "extracts the content delta from a streaming SSE data line.
-Falls back to `reasoning_content` when `content` is empty (reasoning models
-via vLLM and similar). Thinking tokens are prefixed with a SOH byte (0x01)
-so callers can distinguish them from regular content tokens.")
   (defn parse-delta [line]
     (cond
       (String.starts-with? line "data: [DONE]") (Maybe.Nothing)
@@ -667,11 +589,6 @@ so callers can distinguish them from regular content tokens.")
             _ (Maybe.Nothing)))
       (Maybe.Nothing)))
 
-  (doc parse-stream-event "parses an OpenAI streaming SSE line into a
-`StreamChunk`. Handles text deltas, incremental tool call data (start and
-argument fragments), reasoning tokens, and the `[DONE]` sentinel. Only the
-first tool call delta per chunk is examined — parallel tool calls (multiple
-entries in the `tool_calls` array) are not supported.")
   (defn parse-stream-event [line]
     (cond
       (String.starts-with? line "data: [DONE]") (StreamChunk.ChunkDone)
@@ -714,10 +631,6 @@ entries in the `tool_calls` array) are not supported.")
                 _ (StreamChunk.ChunkSkip))
             _ (StreamChunk.ChunkSkip)))
       (StreamChunk.ChunkSkip))))
-
-; ===========================================================================
-; Provider: Anthropic
-; ===========================================================================
 
 (defmodule Anthropic
   (hidden system-text)
@@ -792,11 +705,8 @@ entries in the `tool_calls` array) are not supported.")
             with-top-p)]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc build-request
-    "builds the JSON request body for the Anthropic messages API.")
   (defn build-request [req] (Anthropic.body req false))
 
-  (doc parse-response "parses an Anthropic messages API response.")
   (defn parse-response [body]
     (match (llm-json-parse body)
       (Result.Error e) (Result.Error e)
@@ -841,23 +751,16 @@ entries in the `tool_calls` array) are not supported.")
                               output-tokens
                               tool-calls)))))
 
-  (doc endpoint "returns the messages API endpoint path.")
   (defn endpoint [_config] @"/v1/messages")
 
-  (doc headers "returns the HTTP headers for an Anthropic request.")
   (defn headers [config body-len]
     {@"Content-Type" [@"application/json"]
      @"x-api-key" [@(ProviderConfig.api-key config)]
      @"anthropic-version" [@(ProviderConfig.api-version config)]
      @"Content-Length" [(Int.str body-len)]})
 
-  (doc build-stream-request "builds a streaming Anthropic messages request.")
   (defn build-stream-request [req] (Anthropic.body req true))
 
-  (doc parse-delta "extracts text from an Anthropic streaming SSE data line.
-Handles both regular `text_delta` and `thinking_delta` events. Thinking
-tokens are prefixed with a SOH byte (0x01) so callers can distinguish them
-from regular content tokens.")
   (defn parse-delta [line]
     (if (String.starts-with? line "data: ")
       (let [json-str (String.byte-slice line 6 (String.length line))]
@@ -881,11 +784,6 @@ from regular content tokens.")
           _ (Maybe.Nothing)))
       (Maybe.Nothing)))
 
-  (doc parse-stream-event "parses an Anthropic streaming SSE line into a
-`StreamChunk`. Handles `content_block_start` (tool use), `content_block_delta`
-(text, thinking, and input JSON), `content_block_stop`, and `message_stop`.
-Thinking tokens (`thinking_delta`) are emitted as `ChunkText` with a SOH
-byte prefix, matching the convention used by OpenAI and Ollama.")
   (defn parse-stream-event [line]
     (if (String.starts-with? line "data: ")
       (let [json-str (String.byte-slice line 6 (String.length line))]
@@ -923,10 +821,6 @@ byte prefix, matching the convention used by OpenAI and Ollama.")
                 (StreamChunk.ChunkSkip)))
           _ (StreamChunk.ChunkSkip)))
       (StreamChunk.ChunkSkip))))
-
-; ===========================================================================
-; Provider: Ollama
-; ===========================================================================
 
 (defmodule Ollama
   (hidden body)
@@ -992,10 +886,8 @@ byte prefix, matching the convention used by OpenAI and Ollama.")
             with-tools)]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc build-request "builds the JSON request body for the Ollama chat API.")
   (defn build-request [req] (Ollama.body req false))
 
-  (doc parse-response "parses an Ollama chat API response.")
   (defn parse-response [body]
     (match (llm-json-parse body)
       (Result.Error e) (Result.Error e)
@@ -1014,21 +906,14 @@ byte prefix, matching the convention used by OpenAI and Ollama.")
                               output-tokens
                               tool-calls)))))
 
-  (doc endpoint "returns the chat API endpoint path.")
   (defn endpoint [_config] @"/api/chat")
 
-  (doc headers "returns the HTTP headers for an Ollama request.")
   (defn headers [_config body-len]
     {@"Content-Type" [@"application/json"]
      @"Content-Length" [(Int.str body-len)]})
 
-  (doc build-stream-request "builds a streaming Ollama chat request.")
   (defn build-stream-request [req] (Ollama.body req true))
 
-  (doc parse-delta "extracts content from an Ollama streaming NDJSON line.
-Falls back to the `thinking` field when `content` is empty (reasoning models).
-Thinking tokens are prefixed with a SOH byte (0x01) so callers can distinguish
-them from regular content tokens.")
   (defn parse-delta [line]
     (match (JSON.parse line)
       (Result.Success j)
@@ -1046,11 +931,6 @@ them from regular content tokens.")
           _ (Maybe.Nothing))
       _ (Maybe.Nothing)))
 
-  (doc parse-stream-event "parses an Ollama streaming NDJSON line into a
-`StreamChunk`. Extracts tool calls from the `done=true` final message. Text
-and thinking content come from earlier `done=false` messages. Only the first
-tool call in the final message is extracted — parallel tool calls are not
-supported.")
   (defn parse-stream-event [line]
     (match (JSON.parse line)
       (Result.Success j)
@@ -1073,15 +953,6 @@ supported.")
           _ (StreamChunk.ChunkSkip))
       _ (StreamChunk.ChunkSkip))))
 
-; ===========================================================================
-; Provider: Gemini
-; ===========================================================================
-
-(doc gemini-message-to-json "converts a `Message` to Gemini’s `contents`
-element format. Maps roles to Gemini wire names (`assistant` → `model`),
-serializes tool results as `functionResponse` parts with role `user`, and
-assistant tool calls as `functionCall` parts. When images are present on
-user messages, adds `inlineData` parts alongside the text part.")
 (defn gemini-message-to-json [m]
   (match-ref (Message.role m)
     (Role.Tool)
@@ -1218,11 +1089,8 @@ user messages, adds `inlineData` parts alongside the text part.")
             with-sys)]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc build-request
-    "builds the JSON request body for the Gemini generateContent API.")
   (defn build-request [req] (Gemini.body req true))
 
-  (doc parse-response "parses a Gemini generateContent API response.")
   (defn parse-response [body]
     (match (llm-json-parse body)
       (Result.Error e) (Result.Error e)
@@ -1285,29 +1153,20 @@ user messages, adds `inlineData` parts alongside the text part.")
                               output-tokens
                               tool-calls)))))
 
-  (doc endpoint "returns the generateContent endpoint path for the given model.")
   (defn endpoint [_config model]
     (String.concat &[@"/v1beta/models/" @model @":generateContent"]))
 
-  (doc stream-endpoint
-    "returns the streamGenerateContent endpoint path for the given model.
-The `?alt=sse` parameter enables Server-Sent Events streaming.")
   (defn stream-endpoint [_config model]
     (String.concat
       &[@"/v1beta/models/" @model @":streamGenerateContent?alt=sse"]))
 
-  (doc headers "returns the HTTP headers for a Gemini request.")
   (defn headers [config body-len]
     {@"Content-Type" [@"application/json"]
      @"x-goog-api-key" [@(ProviderConfig.api-key config)]
      @"Content-Length" [(Int.str body-len)]})
 
-  (doc build-stream-request "builds a streaming Gemini generateContent request.")
   (defn build-stream-request [req] (Gemini.body req true))
 
-  (doc parse-delta "extracts text from a Gemini streaming SSE data line.
-Parts with `\"thought\": true` are thinking tokens and are prefixed with a
-SOH byte (0x01) so callers can distinguish them from regular content tokens.")
   (defn parse-delta [line]
     (if (String.starts-with? line "data: ")
       (let [json-str (String.byte-slice line 6 (String.length line))]
@@ -1338,12 +1197,6 @@ SOH byte (0x01) so callers can distinguish them from regular content tokens.")
           _ (Maybe.Nothing)))
       (Maybe.Nothing)))
 
-  (doc parse-stream-event "parses a Gemini streaming SSE line into a
-`StreamChunk`. Extracts function calls as complete `ChunkToolFull` events
-and text content as `ChunkText`. Note: Gemini does not provide tool call
-IDs, so the resulting `ToolCall` will have an empty string as its ID.
-Only the first part of the response is examined — multiple parallel tool
-calls in a single chunk are not supported.")
   (defn parse-stream-event [line]
     (if (String.starts-with? line "data: ")
       (let [json-str (String.byte-slice line 6 (String.length line))]
@@ -1380,20 +1233,10 @@ calls in a single chunk are not supported.")
           _ (StreamChunk.ChunkSkip)))
       (StreamChunk.ChunkSkip))))
 
-; ===========================================================================
-; Provider dispatch helpers
-; ===========================================================================
-; These map a provider name string to the matching per-provider function.
-
-(doc llm-known-provider? "returns `true` if the given name matches one of
-the supported providers (`\"openai\"`, `\"anthropic\"`, `\"ollama\"`,
-`\"gemini\"`).")
 (defn llm-known-provider? [name]
   (or (= name "openai")
       (or (= name "anthropic") (or (= name "ollama") (= name "gemini")))))
 
-(doc llm-build-body "builds a provider-specific sync request body JSON
-string for the given `LLMRequest`.")
 (defn llm-build-body [provider req]
   (cond
     (= provider "openai") (OpenAI.build-request req)
@@ -1402,8 +1245,6 @@ string for the given `LLMRequest`.")
     (= provider "gemini") (Gemini.build-request req)
     @""))
 
-(doc llm-build-stream-body "builds a provider-specific streaming request
-body JSON string for the given `LLMRequest`.")
 (defn llm-build-stream-body [provider req]
   (cond
     (= provider "openai") (OpenAI.build-stream-request req)
@@ -1412,8 +1253,6 @@ body JSON string for the given `LLMRequest`.")
     (= provider "gemini") (Gemini.build-stream-request req)
     @""))
 
-(doc llm-endpoint-path "returns the sync API path for the given provider
-and request. Only Gemini's endpoint is model-dependent.")
 (defn llm-endpoint-path [provider config req]
   (cond
     (= provider "openai") (OpenAI.endpoint config)
@@ -1422,9 +1261,6 @@ and request. Only Gemini's endpoint is model-dependent.")
     (= provider "gemini") (Gemini.endpoint config (LLMRequest.model req))
     @""))
 
-(doc llm-stream-endpoint-path "returns the streaming API path for the given
-provider. For most providers this is the same as the sync endpoint; Gemini
-uses a dedicated `:streamGenerateContent?alt=sse` path.")
 (defn llm-stream-endpoint-path [provider config req]
   (cond
     (= provider "openai") (OpenAI.endpoint config)
@@ -1433,8 +1269,6 @@ uses a dedicated `:streamGenerateContent?alt=sse` path.")
     (= provider "gemini") (Gemini.stream-endpoint config (LLMRequest.model req))
     @""))
 
-(doc llm-build-headers "builds the provider-specific HTTP headers for a
-request of the given body length.")
 (defn llm-build-headers [provider config body-len]
   (cond
     (= provider "openai") (OpenAI.headers config body-len)
@@ -1443,8 +1277,6 @@ request of the given body length.")
     (= provider "gemini") (Gemini.headers config body-len)
     (the (Map String (Array String)) {})))
 
-(doc llm-parse-success "parses a 2xx response body into an `LLMResponse`
-using the provider's parser.")
 (defn llm-parse-success [provider body]
   (cond
     (= provider "openai") (OpenAI.parse-response body)
@@ -1452,10 +1284,6 @@ using the provider's parser.")
     (= provider "ollama") (Ollama.parse-response body)
     (= provider "gemini") (Gemini.parse-response body)
     (Result.Error @"unknown provider")))
-
-; ===========================================================================
-; Main dispatch
-; ===========================================================================
 
 (doc LLM "is a multi-provider LLM client supporting Anthropic, OpenAI, Ollama,
 and Gemini.
@@ -1586,10 +1414,6 @@ the provider's error response. On transport failures, returns `LLMError.Transpor
                                  (Response.body &resp)))
             (Result.Error e) (llm-transport-error e)))))))
 
-; ===========================================================================
-; LlmStream — pull-based token stream
-; ===========================================================================
-
 (doc LlmStream "is a pull-based stream of tokens and tool calls from an LLM
 response. Wraps a `ResponseStream` and parses provider-specific streaming
 formats. Use `poll` for text-only streaming or `poll-event` for streaming
@@ -1621,9 +1445,6 @@ with tool call support.
    pending-tcs (Array ToolCall)
    stream-done Bool])
 
-(doc llm-stream-extract-line "extracts a single newline-terminated line from
-an `LlmStream`'s line buffer, advancing the buffer. Returns
-`(Maybe.Nothing)` if the buffer does not yet contain a full line.")
 (defn llm-stream-extract-line [s]
   (let [buf (LlmStream.linebuf s)
         pos (String.index-of buf \newline)]
@@ -1634,9 +1455,6 @@ an `LlmStream`'s line buffer, advancing the buffer. Returns
         (LlmStream.set-linebuf! s rest)
         (Maybe.Just line)))))
 
-(doc llm-stream-parse-line "dispatches a single streaming response line to
-the provider-specific `parse-delta` function. Returns `(Maybe.Just token)`
-if the line contains a text delta, `(Maybe.Nothing)` otherwise.")
 (defn llm-stream-parse-line [provider line]
   (cond
     (= provider "ollama") (Ollama.parse-delta line)
@@ -1645,9 +1463,6 @@ if the line contains a text delta, `(Maybe.Nothing)` otherwise.")
     (= provider "gemini") (Gemini.parse-delta line)
     (Maybe.Nothing)))
 
-(doc llm-stream-parse-event "dispatches a single streaming response line to
-the provider-specific `parse-stream-event` function. Returns a `StreamChunk`
-describing what the line contains.")
 (defn llm-stream-parse-event [provider line]
   (cond
     (= provider "ollama") (Ollama.parse-stream-event line)
@@ -1656,9 +1471,6 @@ describing what the line contains.")
     (= provider "gemini") (Gemini.parse-stream-event line)
     (StreamChunk.ChunkSkip)))
 
-(doc llm-finalize-pending-tc "if an in-progress tool call is being
-accumulated (tc-id is non-empty), finalizes it into a `ToolCall` and appends
-it to the pending queue. Resets the accumulation state.")
 (defn llm-finalize-pending-tc [s]
   (when (> (String.length (LlmStream.tc-id s)) 0)
     (let [tc (ToolCall.init @(LlmStream.tc-id s)
@@ -1670,8 +1482,6 @@ it to the pending queue. Resets the accumulation state.")
       (LlmStream.set-tc-name! s @"")
       (LlmStream.set-tc-args! s @""))))
 
-(doc llm-dequeue-pending-tc "removes and returns the first `ToolCall` from
-the pending queue. The caller must ensure the queue is non-empty.")
 (defn llm-dequeue-pending-tc [s]
   (let-do [tc @(Array.unsafe-nth (LlmStream.pending-tcs s) 0)
            new-pending (the (Array ToolCall) [])]
@@ -1691,22 +1501,20 @@ support.")
     (let-do [result (Maybe.Nothing)
              done false]
       (while (and (not done) (Maybe.nothing? &result))
-        ; try to get a line from buffer
         (match (llm-stream-extract-line s)
           (Maybe.Just line)
-          (let [trimmed (String.trim &line)]
-            (when (> (String.length &trimmed) 0)
-              (match (llm-stream-parse-line (provider s) &trimmed)
-                (Maybe.Just tok) (set! result (Maybe.Just tok))
-                (Maybe.Nothing) ())))
+            (let [trimmed (String.trim &line)]
+              (when (> (String.length &trimmed) 0)
+                (match (llm-stream-parse-line (provider s) &trimmed)
+                  (Maybe.Just tok) (set! result (Maybe.Just tok))
+                  (Maybe.Nothing) ())))
           (Maybe.Nothing)
-          ; need more data from ResponseStream
-          (match (ResponseStream.poll (rs s))
-            (Maybe.Nothing) (set! done true)
-            (Maybe.Just chunk)
-              (LlmStream.set-linebuf! s
-                                      (String.concat &[@(LlmStream.linebuf s)
-                                                       chunk])))))
+            (match (ResponseStream.poll (rs s))
+              (Maybe.Nothing) (set! done true)
+              (Maybe.Just chunk)
+                (LlmStream.set-linebuf! s
+                                        (String.concat &[@(LlmStream.linebuf s)
+                                                         chunk])))))
       result))
   (implements poll LlmStream.poll)
 
@@ -1733,14 +1541,11 @@ will produce incorrect results. Gemini does not provide tool call IDs, so
   (defn poll-event [s]
     (let-do [result (the (Maybe StreamEvent) (Maybe.Nothing))
              done false]
-      ; Return pending tool calls first
       (when (> (Array.length (pending-tcs s)) 0)
         (let [tc (llm-dequeue-pending-tc s)]
           (set! result (Maybe.Just (StreamEvent.ToolCallEvent tc)))
           (set! done true)))
-      ; Check if stream already marked done
       (when (and (not done) @(stream-done s)) (set! done true))
-      ; Main loop
       (while (and (not done) (Maybe.nothing? &result))
         (match (llm-stream-extract-line s)
           (Maybe.Just line)
@@ -1791,8 +1596,6 @@ will produce incorrect results. Gemini does not provide tool call IDs, so
   (doc close "closes the underlying connection.")
   (defn close [s] (ResponseStream.close! (rs &s))))
 
-; Extend LLM module with streaming
-
 (defmodule LLM
   (doc chat-stream "sends a streaming chat request and returns an `LlmStream`.
 Poll the stream for tokens. Returns `(Result LlmStream LLMError)`. Checks
@@ -1823,20 +1626,9 @@ the HTTP status code before returning the stream.")
                   (llm-parse-error name sc &err-body)))
             (Result.Error e) (llm-transport-error e)))))))
 
-; ===========================================================================
-; Agentic tool-use loop — helpers
-; ===========================================================================
-
-(doc llm-loop-should-continue? "returns `true` if the tool-use loop should
-perform another iteration: the response contains at least one tool call and
-the current iteration index is below `max-iters`.")
 (defn llm-loop-should-continue? [response iter max-iters]
   (and (> (Array.length (LLMResponse.tool-calls response)) 0) (< iter max-iters)))
 
-(doc llm-collect-tool-results "invokes `handler` for each tool call in `tcs`
-and returns an array of tool-result `Message`s, one per call, preserving
-order. Each result message carries the tool-call ID from the corresponding
-`ToolCall`, falling back to the tool name when the ID is empty (Gemini).")
 (defn llm-collect-tool-results [tcs handler]
   (let-do [results (the (Array Message) [])]
     (for [j 0 (Array.length tcs)]
@@ -1848,19 +1640,11 @@ order. Each result message carries the tool-call ID from the corresponding
         (set! results (Array.push-back results (Message.tool-result &id &res)))))
     results))
 
-(doc llm-apply-loop-step "performs one iteration of the tool-use loop on the
-message array: appends an assistant message (built from `response`) followed
-by one tool-result message per tool call (produced by `handler`). Returns the
-updated message array.")
 (defn llm-apply-loop-step [msgs response handler]
   (let [asst-msg (Message.from-response response)
         tool-msgs (llm-collect-tool-results (LLMResponse.tool-calls response)
                                             handler)]
     (Array.concat &[(Array.push-back msgs asst-msg) tool-msgs])))
-
-; ===========================================================================
-; Agentic tool-use loop
-; ===========================================================================
 
 (defmodule LLM
   (doc chat-loop "runs an agentic tool-use loop. Calls `chat` with the given
@@ -1916,10 +1700,6 @@ reached, the last response is returned (it may still contain tool calls).
                   (set! i (inc i)))))))
       result)))
 
-; ===========================================================================
-; Embeddings
-; ===========================================================================
-
 (doc EmbeddingRequest "a request to generate text embeddings.
 
 Build with `LLM.embedding-request` rather than constructing directly.
@@ -1938,8 +1718,6 @@ Build with `LLM.embedding-request` rather than constructing directly.
 (deftype EmbeddingResponse [embeddings (Array (Array Double))
                             total-tokens Int])
 
-(doc llm-json-doubles "parses a JSON array of numbers into an array of doubles.
-Returns an empty array if the value is not an array.")
 (defn llm-json-doubles [j]
   (match (JSON.as-arr j)
     (Maybe.Just boxes)
@@ -1948,11 +1726,7 @@ Returns an empty array if the value is not an array.")
         &boxes)
     _ (the (Array Double) [])))
 
-; --- OpenAI embeddings ---
-
 (defmodule OpenAI
-  (doc build-embedding-request
-    "builds the JSON request body for the OpenAI embeddings API.")
   (defn build-embedding-request [req]
     (let [input-arr (JSON.Arr
             (Array.copy-map &(fn [s] (Box.init (JSON.Str @s)))
@@ -1961,7 +1735,6 @@ Returns an empty array if the value is not an array.")
                    (JSON.entry @"input" input-arr)]]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc parse-embedding-response "parses an OpenAI embeddings API response.")
   (defn parse-embedding-response [body]
     (match (llm-json-parse body)
       (Result.Error e) (Result.Error e)
@@ -1981,14 +1754,9 @@ Returns an empty array if the value is not an array.")
               total-tokens (llm-json-int &j &[@"usage" @"total_tokens"])]
           (Result.Success (EmbeddingResponse.init embeddings total-tokens)))))
 
-  (doc embedding-endpoint "returns the embeddings endpoint path.")
   (defn embedding-endpoint [_config] @"/v1/embeddings"))
 
-; --- Ollama embeddings ---
-
 (defmodule Ollama
-  (doc build-embedding-request
-    "builds the JSON request body for the Ollama embed API.")
   (defn build-embedding-request [req]
     (let [input-arr (JSON.Arr
             (Array.copy-map &(fn [s] (Box.init (JSON.Str @s)))
@@ -1997,7 +1765,6 @@ Returns an empty array if the value is not an array.")
                    (JSON.entry @"input" input-arr)]]
       (llm-json-to-str &(JSON.obj entries))))
 
-  (doc parse-embedding-response "parses an Ollama embed API response.")
   (defn parse-embedding-response [body]
     (match (llm-json-parse body)
       (Result.Error e) (Result.Error e)
@@ -2013,14 +1780,9 @@ Returns an empty array if the value is not an array.")
                 _ (the (Array (Array Double)) []))]
           (Result.Success (EmbeddingResponse.init embeddings 0)))))
 
-  (doc embedding-endpoint "returns the embed endpoint path.")
   (defn embedding-endpoint [_config] @"/api/embed"))
 
-; --- Gemini embeddings ---
-
 (defmodule Gemini
-  (doc build-embedding-request
-    "builds the JSON request body for the Gemini batchEmbedContents API.")
   (defn build-embedding-request [req]
     (let [model-path (String.concat &[@"models/" @(EmbeddingRequest.model req)])
           reqs (JSON.Arr
@@ -2039,8 +1801,6 @@ Returns an empty array if the value is not an array.")
               (EmbeddingRequest.input req)))]
       (llm-json-to-str &(JSON.obj [(JSON.entry @"requests" reqs)]))))
 
-  (doc parse-embedding-response
-    "parses a Gemini batchEmbedContents API response.")
   (defn parse-embedding-response [body]
     (match (llm-json-parse body)
       (Result.Error e) (Result.Error e)
@@ -2059,20 +1819,12 @@ Returns an empty array if the value is not an array.")
                 _ (the (Array (Array Double)) []))]
           (Result.Success (EmbeddingResponse.init embeddings 0)))))
 
-  (doc embedding-endpoint
-    "returns the batchEmbedContents endpoint path for the given model.")
   (defn embedding-endpoint [_config model]
     (String.concat &[@"/v1beta/models/" @model @":batchEmbedContents"])))
 
-; --- Embedding dispatch ---
-
-(doc llm-embedding-provider? "returns `true` if the given provider supports
-embeddings. Anthropic does not offer an embeddings API.")
 (defn llm-embedding-provider? [name]
   (or (= name "openai") (or (= name "ollama") (= name "gemini"))))
 
-(doc llm-build-embedding-body "builds a provider-specific embedding request
-body JSON string.")
 (defn llm-build-embedding-body [provider req]
   (cond
     (= provider "openai") (OpenAI.build-embedding-request req)
@@ -2080,8 +1832,6 @@ body JSON string.")
     (= provider "gemini") (Gemini.build-embedding-request req)
     @""))
 
-(doc llm-embedding-endpoint-path "returns the embedding API path for the
-given provider.")
 (defn llm-embedding-endpoint-path [provider config req]
   (cond
     (= provider "openai") (OpenAI.embedding-endpoint config)
@@ -2090,8 +1840,6 @@ given provider.")
       (Gemini.embedding-endpoint config (EmbeddingRequest.model req))
     @""))
 
-(doc llm-parse-embedding-success "parses a 2xx embedding response body using
-the provider's parser.")
 (defn llm-parse-embedding-success [provider body]
   (cond
     (= provider "openai") (OpenAI.parse-embedding-response body)
