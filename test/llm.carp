@@ -1775,6 +1775,23 @@
       _ false)
     "Anthropic parse-stream-event returns ChunkDone for message_stop")
 
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"let me think\"}}"]
+      (match (Anthropic.parse-stream-event line)
+        (StreamChunk.ChunkText tok)
+          (and
+            (= (Char.to-int (String.char-at &tok 0)) 1)
+            (= &(String.suffix &tok 1) "let me think"))
+        _ false))
+    "Anthropic parse-stream-event prefixes thinking_delta with SOH")
+
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\"}}"]
+      (match (Anthropic.parse-stream-event line)
+        (StreamChunk.ChunkSkip) true
+        _ false))
+    "Anthropic parse-stream-event returns ChunkSkip for empty thinking_delta")
+
   ; =========================================================================
   ; Ollama parse-stream-event
   ; =========================================================================
@@ -2098,4 +2115,342 @@
                 _ false)
             _ false)
         _ false))
-    "Gemini build-request serializes tool-result as functionResponse"))
+    "Gemini build-request serializes tool-result as functionResponse")
+
+  ; =========================================================================
+  ; Anthropic tool-result wire format: tool_result content block
+  ; =========================================================================
+
+  (assert-true test
+    (let [m (Message.tool-result "tc1" "sunny")
+          j (llm-message-to-anthropic-json &m)]
+      (= &(llm-json-str &j &[@"role"]) "user"))
+    "Anthropic tool-result message has role=user")
+
+  (assert-true test
+    (let [m (Message.tool-result "tc1" "sunny")
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.nth &arr 0)
+            (Maybe.Just block)
+              (= &(llm-json-str &block &[@"type"]) "tool_result")
+            _ false)
+        _ false))
+    "Anthropic tool-result message content has type=tool_result")
+
+  (assert-true test
+    (let [m (Message.tool-result "call_abc" "result text")
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.nth &arr 0)
+            (Maybe.Just block)
+              (= &(llm-json-str &block &[@"tool_use_id"]) "call_abc")
+            _ false)
+        _ false))
+    "Anthropic tool-result message uses tool_use_id (not tool_call_id)")
+
+  (assert-true test
+    (let [m (Message.tool-result "tc1" "the answer is 42")
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.nth &arr 0)
+            (Maybe.Just block)
+              (= &(llm-json-str &block &[@"content"]) "the answer is 42")
+            _ false)
+        _ false))
+    "Anthropic tool-result message preserves result content")
+
+  ; =========================================================================
+  ; Anthropic wire format: assistant message with tool calls
+  ; =========================================================================
+
+  (assert-true test
+    (let [m (Message.init (Role.Assistant)
+                          @"I'll check"
+                          [(ToolCall.init @"tc1"
+                                          @"get_weather"
+                                          @"{\"city\":\"Paris\"}")]
+                          @""
+                          [])
+          j (llm-message-to-anthropic-json &m)]
+      (= &(llm-json-str &j &[@"role"]) "assistant"))
+    "Anthropic assistant+tool-calls message has role=assistant")
+
+  (assert-true test
+    (let [m (Message.init (Role.Assistant)
+                          @"I'll check"
+                          [(ToolCall.init @"tc1"
+                                          @"get_weather"
+                                          @"{\"city\":\"Paris\"}")]
+                          @""
+                          [])
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.nth &arr 0)
+            (Maybe.Just block)
+              (and
+                (= &(llm-json-str &block &[@"type"]) "text")
+                (= &(llm-json-str &block &[@"text"]) "I'll check"))
+            _ false)
+        _ false))
+    "Anthropic assistant+tool-calls has text block first")
+
+  (assert-true test
+    (let [m (Message.init (Role.Assistant)
+                          @"I'll check"
+                          [(ToolCall.init @"tc1"
+                                          @"get_weather"
+                                          @"{\"city\":\"Paris\"}")]
+                          @""
+                          [])
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.nth &arr 1)
+            (Maybe.Just block)
+              (and
+                (= &(llm-json-str &block &[@"type"]) "tool_use")
+                (and
+                  (= &(llm-json-str &block &[@"id"]) "tc1")
+                  (= &(llm-json-str &block &[@"name"]) "get_weather")))
+            _ false)
+        _ false))
+    "Anthropic assistant+tool-calls has tool_use block with id and name")
+
+  (assert-true test
+    (let [m (Message.init (Role.Assistant)
+                          @"I'll check"
+                          [(ToolCall.init @"tc1"
+                                          @"get_weather"
+                                          @"{\"city\":\"Paris\"}")]
+                          @""
+                          [])
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.nth &arr 1)
+            (Maybe.Just block)
+              (match (JSON.get &block "input")
+                (Maybe.Just inp) (= &(llm-json-str &inp &[@"city"]) "Paris")
+                _ false)
+            _ false)
+        _ false))
+    "Anthropic tool_use block has parsed input JSON")
+
+  (assert-true test
+    (let [m (Message.init (Role.Assistant)
+                          @""
+                          [(ToolCall.init @"tc1" @"f" @"{}")]
+                          @""
+                          [])
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.as-arr &arr)
+            (Maybe.Just boxes) (= (Array.length &boxes) 1)
+            _ false)
+        _ false))
+    "Anthropic omits text block when assistant content is empty")
+
+  (assert-true test
+    (let [m (Message.init (Role.Assistant)
+                          @""
+                          [(ToolCall.init @"tc1" @"a" @"{}")
+                           (ToolCall.init @"tc2" @"b" @"{}")]
+                          @""
+                          [])
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.as-arr &arr)
+            (Maybe.Just boxes) (= (Array.length &boxes) 2)
+            _ false)
+        _ false))
+    "Anthropic serializes multiple tool_use blocks")
+
+  (assert-true test
+    (let [m (Message.init (Role.Assistant)
+                          @""
+                          [(ToolCall.init @"tc1" @"f" @"not-json")]
+                          @""
+                          [])
+          j (llm-message-to-anthropic-json &m)]
+      (match (JSON.get &j "content")
+        (Maybe.Just arr)
+          (match (JSON.nth &arr 0)
+            (Maybe.Just block)
+              (match (JSON.get &block "input")
+                (Maybe.Just inp)
+                  (= &(Maybe.from (JSON.as-str &inp) @"") "not-json")
+                _ false)
+            _ false)
+        _ false))
+    "Anthropic tool_use falls back to string for invalid JSON arguments")
+
+  ; =========================================================================
+  ; Anthropic wire format: no tool_calls or tool_call_id on regular messages
+  ; =========================================================================
+
+  (assert-true test
+    (let [m (Message.user "hello")
+          j (llm-message-to-anthropic-json &m)]
+      (and
+        (match (JSON.get &j "tool_calls")
+          (Maybe.Just _) false
+          (Maybe.Nothing) true)
+        (match (JSON.get &j "tool_call_id")
+          (Maybe.Just _) false
+          (Maybe.Nothing) true)))
+    "Anthropic regular user message has no tool_calls or tool_call_id keys")
+
+  ; =========================================================================
+  ; Anthropic wire format in full request body
+  ; =========================================================================
+
+  (assert-true test
+    (let [msgs [(Message.user "weather?")
+                (Message.init (Role.Assistant)
+                              @""
+                              [(ToolCall.init @"tc1" @"get_weather" @"{}")]
+                              @""
+                              [])
+                (Message.tool-result "tc1" "sunny")]
+          req (LLM.chat-request-with-tools "claude-sonnet-4-20250514"
+                                           msgs
+                                           100
+                                           0.5
+                                           [(ToolDef.init @"get_weather"
+                                                          @"Get weather"
+                                                          (JSON.obj []))])
+          body (Anthropic.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get &j "messages")
+            (Maybe.Just arr)
+              (and ; First message: user
+                   (match (JSON.nth &arr 0)
+                     (Maybe.Just m) (= &(llm-json-str &m &[@"role"]) "user")
+                     _ false)
+                   (and
+                     ; Second message: assistant with tool_use content
+                     (match (JSON.nth &arr 1)
+                       (Maybe.Just m)
+                         (match (JSON.get &m "content")
+                           (Maybe.Just content)
+                             (match (JSON.nth &content 0)
+                               (Maybe.Just block)
+                                 (= &(llm-json-str &block &[@"type"]) "tool_use")
+                               _ false)
+                           _ false)
+                       _ false)
+                     ; Third message: user with tool_result content
+                     (match (JSON.nth &arr 2)
+                       (Maybe.Just m)
+                         (and (= &(llm-json-str &m &[@"role"]) "user")
+                              (match (JSON.get &m "content")
+                                (Maybe.Just content)
+                                  (match (JSON.nth &content 0)
+                                    (Maybe.Just block)
+                                      (= &(llm-json-str &block &[@"type"])
+                                         "tool_result")
+                                    _ false)
+                                _ false))
+                       _ false)))
+            _ false)
+        _ false))
+    "Anthropic full multi-turn tool conversation uses correct wire format")
+
+  ; =========================================================================
+  ; Anthropic tool-call response parsing
+  ; =========================================================================
+
+  (assert-true test
+    (let [body "{\"content\":[{\"type\":\"text\",\"text\":\"Let me check\"},{\"type\":\"tool_use\",\"id\":\"tc1\",\"name\":\"get_weather\",\"input\":{\"city\":\"Paris\"}}],\"stop_reason\":\"tool_use\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}"]
+      (match (Anthropic.parse-response body)
+        (Result.Success r)
+          (and
+            (= (LLMResponse.content &r) "Let me check")
+            (and
+              (= (Array.length (LLMResponse.tool-calls &r)) 1)
+              (=
+                (ToolCall.name (Array.unsafe-nth (LLMResponse.tool-calls &r) 0))
+                "get_weather")))
+        _ false))
+    "Anthropic.parse-response extracts both text content and tool calls")
+
+  ; =========================================================================
+  ; Streaming parse-delta: Anthropic thinking tokens
+  ; =========================================================================
+
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}"]
+      (match (Anthropic.parse-delta line)
+        (Maybe.Just tok) (= &tok "hello")
+        _ false))
+    "Anthropic parse-delta returns regular text_delta content")
+
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"let me think\"}}"]
+      (match (Anthropic.parse-delta line)
+        (Maybe.Just tok)
+          (and
+            (= (Char.to-int (String.char-at &tok 0)) 1)
+            (= &(String.suffix &tok 1) "let me think"))
+        _ false))
+    "Anthropic parse-delta prefixes thinking_delta tokens with SOH byte")
+
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\"}}"]
+      (match (Anthropic.parse-delta line) (Maybe.Nothing) true _ false))
+    "Anthropic parse-delta returns Nothing for empty thinking_delta")
+
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}"]
+      (match (Anthropic.parse-delta line) (Maybe.Nothing) true _ false))
+    "Anthropic parse-delta returns Nothing for empty text_delta")
+
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"text\"}}"]
+      (match (Anthropic.parse-delta line) (Maybe.Nothing) true _ false))
+    "Anthropic parse-delta ignores non-delta events")
+
+  (assert-true test
+    (match (Anthropic.parse-delta "event: message_start")
+      (Maybe.Nothing) true
+      _ false)
+    "Anthropic parse-delta ignores non-data lines")
+
+  ; =========================================================================
+  ; Streaming parse-delta: Gemini thinking tokens
+  ; =========================================================================
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}]}"]
+      (match (Gemini.parse-delta line) (Maybe.Just tok) (= &tok "hello") _ false))
+    "Gemini parse-delta returns regular content without SOH")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"text\":\"hmm\"}]}}]}"]
+      (match (Gemini.parse-delta line)
+        (Maybe.Just tok)
+          (and
+            (= (Char.to-int (String.char-at &tok 0)) 1)
+            (= &(String.suffix &tok 1) "hmm"))
+        _ false))
+    "Gemini parse-delta prefixes thought=true tokens with SOH byte")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thought\":false,\"text\":\"regular\"}]}}]}"]
+      (match (Gemini.parse-delta line)
+        (Maybe.Just tok) (= &tok "regular")
+        _ false))
+    "Gemini parse-delta returns regular content for thought=false")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"text\":\"\"}]}}]}"]
+      (match (Gemini.parse-delta line) (Maybe.Nothing) true _ false))
+    "Gemini parse-delta returns Nothing for empty thought text"))
