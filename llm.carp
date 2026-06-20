@@ -713,11 +713,18 @@ array of content parts (OpenAI format).")
       (Result.Success j)
         (let [content (match (JSON.get &j "content")
                 (Maybe.Just arr)
-                  (match (JSON.nth &arr 0)
-                    (Maybe.Just block)
-                      (if (= &(llm-json-str &block &[@"type"]) "text")
-                        (llm-json-str &block &[@"text"])
-                        @"")
+                  (match (JSON.as-arr &arr)
+                    (Maybe.Just boxes)
+                      (let [text-parts (Array.copy-filter
+                              &(fn [bx]
+                                (= &(llm-json-str (Box.peek bx) &[@"type"])
+                                   "text"))
+                              &boxes)]
+                        (if (> (Array.length &text-parts) 0)
+                          (llm-json-str
+                            (Box.peek (Array.unsafe-nth &text-parts 0))
+                            &[@"text"])
+                          @""))
                     _ @"")
                 _ @"")
               tool-calls (match (JSON.get &j "content")
@@ -816,7 +823,7 @@ array of content parts (OpenAI format).")
                         (StreamChunk.ChunkToolDelta
                           (llm-json-str &j &[@"delta" @"partial_json"]))
                       (StreamChunk.ChunkSkip)))
-                (= &type-str "content_block_stop") (StreamChunk.ChunkToolEnd)
+                (= &type-str "content_block_stop") (StreamChunk.ChunkSkip)
                 (= &type-str "message_stop") (StreamChunk.ChunkDone)
                 (StreamChunk.ChunkSkip)))
           _ (StreamChunk.ChunkSkip)))
@@ -1206,28 +1213,47 @@ array of content parts (OpenAI format).")
               (Maybe.Just arr)
                 (match (JSON.nth &arr 0)
                   (Maybe.Just cand)
-                    (match (JSON.get-in &cand &[@"content" @"parts"])
-                      (Maybe.Just parts)
-                        (match (JSON.nth &parts 0)
-                          (Maybe.Just part)
-                            (match (JSON.get &part "functionCall")
-                              (Maybe.Just fc)
-                                (StreamChunk.ChunkToolFull
-                                  (ToolCall.init @""
-                                                 (llm-json-str &part
-                                                               &[@"functionCall"
-                                                                 @"name"])
-                                                 (match (JSON.get &fc "args")
-                                                   (Maybe.Just a)
-                                                     (llm-json-to-str &a)
-                                                   _ @"")))
-                              _
-                                (let [tok (llm-json-str &part &[@"text"])]
-                                  (if (> (String.length &tok) 0)
-                                    (StreamChunk.ChunkText tok)
-                                    (StreamChunk.ChunkSkip))))
-                          _ (StreamChunk.ChunkSkip))
-                      _ (StreamChunk.ChunkSkip))
+                    (let [has-finish (match (JSON.get &cand "finishReason")
+                            (Maybe.Just _) true
+                            _ false)]
+                      (match (JSON.get-in &cand &[@"content" @"parts"])
+                        (Maybe.Just parts)
+                          (match (JSON.nth &parts 0)
+                            (Maybe.Just part)
+                              (match (JSON.get &part "functionCall")
+                                (Maybe.Just fc)
+                                  (StreamChunk.ChunkToolFull
+                                    (ToolCall.init @""
+                                                   (llm-json-str &part
+                                                                 &[@"functionCall"
+                                                                   @"name"])
+                                                   (match (JSON.get &fc "args")
+                                                     (Maybe.Just a)
+                                                       (llm-json-to-str &a)
+                                                     _ @"")))
+                                _
+                                  (let [tok (llm-json-str &part &[@"text"])
+                                        is-thought (match (JSON.get &part
+                                                                    "thought")
+                                          (Maybe.Just v)
+                                            (Maybe.from (JSON.as-bool &v) false)
+                                          _ false)]
+                                    (cond
+                                      (and (> (String.length &tok) 0) is-thought)
+                                        (StreamChunk.ChunkText (String.concat &[(soh-prefix)
+                                                                                tok]))
+                                      (> (String.length &tok) 0)
+                                        (StreamChunk.ChunkText tok)
+                                      has-finish (StreamChunk.ChunkDone)
+                                      (StreamChunk.ChunkSkip))))
+                            _
+                              (if has-finish
+                                (StreamChunk.ChunkDone)
+                                (StreamChunk.ChunkSkip)))
+                        _
+                          (if has-finish
+                            (StreamChunk.ChunkDone)
+                            (StreamChunk.ChunkSkip))))
                   _ (StreamChunk.ChunkSkip))
               _ (StreamChunk.ChunkSkip))
           _ (StreamChunk.ChunkSkip)))

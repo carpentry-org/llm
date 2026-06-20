@@ -115,6 +115,13 @@
         _ false))
     "Anthropic.parse-response extracts text content block")
 
+  (assert-true test
+    (let [body "{\"content\":[{\"type\":\"thinking\",\"thinking\":\"let me reason\"},{\"type\":\"text\",\"text\":\"the answer\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}"]
+      (match (Anthropic.parse-response body)
+        (Result.Success r) (= (LLMResponse.content &r) "the answer")
+        _ false))
+    "Anthropic.parse-response finds text block after thinking block")
+
   ; =========================================================================
   ; Ollama request serialization
   ; =========================================================================
@@ -1765,9 +1772,9 @@
   (assert-true test
     (match (Anthropic.parse-stream-event
         "data: {\"type\":\"content_block_stop\",\"index\":0}")
-      (StreamChunk.ChunkToolEnd) true
+      (StreamChunk.ChunkSkip) true
       _ false)
-    "Anthropic parse-stream-event returns ChunkToolEnd for content_block_stop")
+    "Anthropic parse-stream-event returns ChunkSkip for content_block_stop")
 
   (assert-true test
     (match (Anthropic.parse-stream-event "data: {\"type\":\"message_stop\"}")
@@ -1852,6 +1859,37 @@
       (StreamChunk.ChunkSkip) true
       _ false)
     "Gemini parse-stream-event returns ChunkSkip for non-data lines")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hmm\",\"thought\":true}]}}]}"]
+      (match (Gemini.parse-stream-event line)
+        (StreamChunk.ChunkText tok)
+          (and
+            (= (Char.to-int (String.char-at &tok 0)) 1)
+            (= &(String.suffix &tok 1) "hmm"))
+        _ false))
+    "Gemini parse-stream-event prefixes thinking parts with SOH")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}]}"]
+      (match (Gemini.parse-stream-event line)
+        (StreamChunk.ChunkText tok) (= &tok "hi")
+        _ false))
+    "Gemini parse-stream-event returns ChunkText when finishReason has content")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}]}"]
+      (match (Gemini.parse-stream-event line)
+        (StreamChunk.ChunkDone) true
+        _ false))
+    "Gemini parse-stream-event returns ChunkDone for finishReason without content")
+
+  (assert-true test
+    (match (Gemini.parse-stream-event
+        "data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}")
+      (StreamChunk.ChunkDone) true
+      _ false)
+    "Gemini parse-stream-event returns ChunkDone for finishReason without parts")
 
   ; =========================================================================
   ; Streaming request bodies include tools
