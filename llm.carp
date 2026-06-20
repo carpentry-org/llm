@@ -1238,14 +1238,14 @@ array of content parts (OpenAI format).")
                                           (Maybe.Just v)
                                             (Maybe.from (JSON.as-bool &v) false)
                                           _ false)]
-                                    (if (> (String.length &tok) 0)
-                                      (if is-thought
+                                    (cond
+                                      (and (> (String.length &tok) 0) is-thought)
                                         (StreamChunk.ChunkText (String.concat &[(soh-prefix)
                                                                                 tok]))
-                                        (StreamChunk.ChunkText tok))
-                                      (if has-finish
-                                        (StreamChunk.ChunkDone)
-                                        (StreamChunk.ChunkSkip)))))
+                                      (> (String.length &tok) 0)
+                                        (StreamChunk.ChunkText tok)
+                                      has-finish (StreamChunk.ChunkDone)
+                                      (StreamChunk.ChunkSkip))))
                             _
                               (if has-finish
                                 (StreamChunk.ChunkDone)
