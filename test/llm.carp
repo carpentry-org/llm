@@ -3,14 +3,7 @@
 
 (use Test)
 
-; ===========================================================================
-; JSON serialization tests (no network, no API keys needed)
-; ===========================================================================
-
 (deftest test
-  ; =========================================================================
-  ; Message construction
-  ; =========================================================================
 
   (assert-equal test
     "user"
@@ -27,10 +20,6 @@
     &(Role.str (Message.role &(Message.system "be helpful")))
     "Message.system sets role to system")
 
-  ; =========================================================================
-  ; Message to-json
-  ; =========================================================================
-
   (assert-true test
     (let [j (Message.to-json &(Message.user "hello"))]
       (and
@@ -41,10 +30,6 @@
           (Maybe.Just c) (= &(Maybe.from (JSON.as-str &c) @"") "hello")
           _ false)))
     "Message.to-json produces correct JSON object")
-
-  ; =========================================================================
-  ; OpenAI request serialization
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
@@ -62,10 +47,6 @@
         _ false))
     "OpenAI.build-request produces valid JSON with model and messages")
 
-  ; =========================================================================
-  ; OpenAI response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"choices\":[{\"message\":{\"content\":\"hi there\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3}}"]
       (match (OpenAI.parse-response body)
@@ -76,10 +57,6 @@
                          (= @(LLMResponse.output-tokens &r) 3))))
         _ false))
     "OpenAI.parse-response extracts content, stop reason, and token counts")
-
-  ; =========================================================================
-  ; Anthropic request serialization
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLM.chat-request "claude-sonnet-4-20250514"
@@ -102,10 +79,6 @@
         _ false))
     "Anthropic.build-request separates system message and filters it from messages")
 
-  ; =========================================================================
-  ; Anthropic response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"content\":[{\"type\":\"text\",\"text\":\"hello!\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}"]
       (match (Anthropic.parse-response body)
@@ -122,10 +95,6 @@
         _ false))
     "Anthropic.parse-response finds text block after thinking block")
 
-  ; =========================================================================
-  ; Ollama request serialization
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLM.chat-request "llama3" [(Message.user "hey")] 128 0.8)
           body (Ollama.build-request &req)]
@@ -139,10 +108,6 @@
         _ false))
     "Ollama.build-request sets model and stream=false")
 
-  ; =========================================================================
-  ; Ollama response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"message\":{\"role\":\"assistant\",\"content\":\"yo\"},\"done_reason\":\"stop\",\"prompt_eval_count\":4,\"eval_count\":1}"]
       (match (Ollama.parse-response body)
@@ -151,10 +116,6 @@
                (= @(LLMResponse.output-tokens &r) 1))
         _ false))
     "Ollama.parse-response extracts message content and eval count")
-
-  ; =========================================================================
-  ; Gemini request serialization
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLM.chat-request "gemini-pro" [(Message.user "hi")] 100 0.5)
@@ -167,10 +128,6 @@
         _ false))
     "Gemini.build-request produces contents array")
 
-  ; =========================================================================
-  ; Gemini response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hey\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":1}}"]
       (match (Gemini.parse-response body)
@@ -179,10 +136,6 @@
                (= (LLMResponse.stop-reason &r) "STOP"))
         _ false))
     "Gemini.parse-response extracts candidate text and finish reason")
-
-  ; =========================================================================
-  ; Provider config constructors
-  ; =========================================================================
 
   (assert-equal test
     "anthropic"
@@ -199,10 +152,6 @@
     (ProviderConfig.base-url &(LLM.ollama "http://localhost:11434"))
     "LLM.ollama preserves base URL")
 
-  ; =========================================================================
-  ; Unknown provider error
-  ; =========================================================================
-
   (assert-true test
     (let [config (ProviderConfig.init @"bogus" @"http://x" @"" @"")
           req (LLM.chat-request "m" [(Message.user "hi")] 10 0.5)]
@@ -210,10 +159,6 @@
         (Result.Error err) (match err (LLMError.Transport _) true _ false)
         _ false))
     "LLM.chat returns Transport error for unknown provider")
-
-  ; =========================================================================
-  ; Structured error types
-  ; =========================================================================
 
   (assert-true test
     (let [err (LLMError.Transport @"connection refused")]
@@ -229,10 +174,6 @@
     (let [err (LLMError.Api 429 @"rate_limit" @"too many requests")]
       (String.contains-string? &(LLMError.str &err) "too many requests"))
     "LLMError.Api str includes message")
-
-  ; =========================================================================
-  ; Error parsing
-  ; =========================================================================
 
   (assert-true test
     (match (the (Result LLMResponse LLMError)
@@ -282,10 +223,6 @@
       _ false)
     "Gemini error parsing extracts status and code")
 
-  ; =========================================================================
-  ; Tool use types
-  ; =========================================================================
-
   (assert-true test
     (let [td (ToolDef.init @"get_weather"
                            @"Get weather"
@@ -311,10 +248,6 @@
     (Message.tool-call-id &(Message.tool-result "tc1" "result"))
     "Message.tool-result preserves tool-call-id")
 
-  ; =========================================================================
-  ; Tool calls in OpenAI response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"choices\":[{\"message\":{\"content\":\"\",\"tool_calls\":[{\"id\":\"tc1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}"]
       (match (OpenAI.parse-response body)
@@ -326,10 +259,6 @@
               "get_weather"))
         _ false))
     "OpenAI parse-response extracts tool calls")
-
-  ; =========================================================================
-  ; Tool calls in Ollama response parsing
-  ; =========================================================================
 
   (assert-true test
     (let [body "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":5,\"eval_count\":3}"]
@@ -343,10 +272,6 @@
         _ false))
     "Ollama parse-response extracts tool calls")
 
-  ; =========================================================================
-  ; Message.from-response preserves tool calls
-  ; =========================================================================
-
   (assert-true test
     (let [r (LLMResponse.init @""
                               @"tool_calls"
@@ -355,10 +280,6 @@
                               [(ToolCall.init @"tc1" @"func" @"{}")])]
       (= (Array.length (Message.tool-calls &(Message.from-response &r))) 1))
     "Message.from-response preserves tool calls for conversation history")
-
-  ; =========================================================================
-  ; Request with tools includes tools array
-  ; =========================================================================
 
   (assert-true test
     (let [tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
@@ -383,10 +304,6 @@
         _ false))
     "OpenAI build-request omits tools when empty")
 
-  ; =========================================================================
-  ; Structured output: OpenAI
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
           body (OpenAI.build-request &req)]
@@ -407,10 +324,6 @@
         _ false))
     "OpenAI build-request sets response_format json_object for Json")
 
-  ; =========================================================================
-  ; Structured output: Ollama
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLM.chat-request-json "llama3" [(Message.user "hi")] 100 0.5)
           body (Ollama.build-request &req)]
@@ -429,10 +342,6 @@
             (Maybe.Nothing) true)
         _ false))
     "Ollama build-request omits format for Text")
-
-  ; =========================================================================
-  ; Structured output: Anthropic (system prompt fallback)
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLM.chat-request-json "claude-sonnet-4-20250514"
@@ -462,10 +371,6 @@
         _ false))
     "Anthropic combines existing system msg with JSON instruction")
 
-  ; =========================================================================
-  ; Structured output: Gemini
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLM.chat-request-json "gemini-pro" [(Message.user "hi")] 100 0.5)
           body (Gemini.build-request &req)]
@@ -476,10 +381,6 @@
             "application/json")
         _ false))
     "Gemini build-request sets responseMimeType for Json")
-
-  ; =========================================================================
-  ; JSON schema mode
-  ; =========================================================================
 
   (assert-true test
     (let [schema (JSON.obj
@@ -548,10 +449,6 @@
         _ false))
     "Anthropic schema mode adds schema to system prompt")
 
-  ; =========================================================================
-  ; Sampling parameters: defaults omitted
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
           body (OpenAI.build-request &req)]
@@ -574,10 +471,6 @@
                   (Maybe.Nothing) true))))
         _ false))
     "OpenAI build-request omits sampling params when unset")
-
-  ; =========================================================================
-  ; Sampling parameters: OpenAI top_p, frequency_penalty, seed
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLMRequest.set-top-p
@@ -619,10 +512,6 @@
         _ false))
     "OpenAI build-request includes seed when set")
 
-  ; =========================================================================
-  ; Sampling parameters: OpenAI ignores top_k
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLMRequest.set-top-k
             (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
@@ -633,10 +522,6 @@
           (match (JSON.get &j "top_k") (Maybe.Just _) false (Maybe.Nothing) true)
         _ false))
     "OpenAI build-request ignores top_k (unsupported)")
-
-  ; =========================================================================
-  ; Sampling parameters: Anthropic top_p and top_k
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLMRequest.set-top-p
@@ -660,10 +545,6 @@
               _ false))
         _ false))
     "Anthropic build-request includes top_p and top_k when set")
-
-  ; =========================================================================
-  ; Sampling parameters: Ollama options
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLMRequest.set-top-p
@@ -706,10 +587,6 @@
         _ false))
     "Ollama build-request includes sampling params in options")
 
-  ; =========================================================================
-  ; Sampling parameters: Gemini generationConfig
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLMRequest.set-top-p
             (LLMRequest.set-top-k
@@ -740,10 +617,6 @@
         _ false))
     "Gemini build-request includes topP and topK in generationConfig")
 
-  ; =========================================================================
-  ; Sampling parameters: negative presence_penalty
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLMRequest.set-presence-penalty
             (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
@@ -757,10 +630,6 @@
         _ false))
     "OpenAI build-request includes negative presence_penalty")
 
-  ; =========================================================================
-  ; Transport error on connection failure
-  ; =========================================================================
-
   (assert-true test
     (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
           req (LLM.chat-request "m" [(Message.user "hi")] 10 0.5)]
@@ -768,10 +637,6 @@
         (Result.Error err) (match err (LLMError.Transport _) true _ false)
         _ false))
     "LLM.chat returns Transport error on connection failure")
-
-  ; =========================================================================
-  ; ImageContent and Message.user-with-image
-  ; =========================================================================
 
   (assert-equal test
     "user"
@@ -800,10 +665,6 @@
     0
     (Array.length (Message.images &(Message.user "no images")))
     "Message.user has empty images")
-
-  ; =========================================================================
-  ; OpenAI image serialization
-  ; =========================================================================
 
   (assert-true test
     (let [msg (Message.user-with-image "what is this?"
@@ -861,10 +722,6 @@
           j (Message.to-json &msg)]
       (match (JSON.get &j "content") (Maybe.Just c) (JSON.str? &c) _ false))
     "Message.to-json keeps content as string when no images")
-
-  ; =========================================================================
-  ; Anthropic image serialization
-  ; =========================================================================
 
   (assert-true test
     (let [msg (Message.user-with-image "describe"
@@ -926,10 +783,6 @@
         _ false))
     "Anthropic image source has correct media_type and data")
 
-  ; =========================================================================
-  ; Ollama image serialization
-  ; =========================================================================
-
   (assert-true test
     (let [msg (Message.user-with-image "what is this?"
                                        [(ImageContent.init @"image/png"
@@ -974,10 +827,6 @@
         _ false))
     "Ollama omits images field for text-only messages")
 
-  ; =========================================================================
-  ; Gemini image serialization
-  ; =========================================================================
-
   (assert-true test
     (let [msg (Message.user-with-image "describe"
                                        [(ImageContent.init @"image/jpeg"
@@ -1015,10 +864,6 @@
         _ false))
     "Gemini serializes images as inlineData parts")
 
-  ; =========================================================================
-  ; Multiple images
-  ; =========================================================================
-
   (assert-true test
     (let [msg (Message.user-with-image "compare"
                                        [(ImageContent.init @"image/png" @"IMG1")
@@ -1041,10 +886,6 @@
             _ false)
         _ false))
     "Multiple images produce text + N image parts (OpenAI)")
-
-  ; =========================================================================
-  ; llm-tool-calls-to-json helper
-  ; =========================================================================
 
   (assert-true test
     (let [tcs [(ToolCall.init @"tc1" @"get_weather" @"{\"city\":\"Paris\"}")]
@@ -1077,10 +918,6 @@
       (= (Array.length &result) 1))
     "llm-append-tool-calls-entry returns entries unchanged for empty tool calls")
 
-  ; =========================================================================
-  ; Message.to-json tool-call serialization (via helper)
-  ; =========================================================================
-
   (assert-true test
     (let [m (Message.init (Role.Assistant)
                           @""
@@ -1097,10 +934,6 @@
             _ false)
         _ false))
     "Message.to-json serializes tool calls via shared helper")
-
-  ; =========================================================================
-  ; Streaming parse-delta: SOH prefix on thinking tokens
-  ; =========================================================================
 
   (assert-true test
     (let [line "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"]
@@ -1131,10 +964,6 @@
             (= &(String.suffix &tok 1) "hmm"))
         _ false))
     "Ollama parse-delta prefixes thinking tokens with SOH byte")
-
-  ; =========================================================================
-  ; llm-loop-should-continue? — iteration control
-  ; =========================================================================
 
   (assert-true test
     (not
@@ -1191,10 +1020,6 @@
       (llm-loop-should-continue? &r 2 3))
     "llm-loop-should-continue? returns true with multiple tool calls")
 
-  ; =========================================================================
-  ; llm-collect-tool-results — handler dispatch
-  ; =========================================================================
-
   (assert-true test
     (let [tcs [(ToolCall.init @"tc1" @"get_weather" @"{\"city\":\"Paris\"}")]
           handler (fn [tc] @"sunny")
@@ -1245,10 +1070,6 @@
           results (llm-collect-tool-results &tcs &handler)]
       (= (Message.content (Array.unsafe-nth &results 0)) "got:{\"x\":1}"))
     "llm-collect-tool-results passes full ToolCall ref to handler")
-
-  ; =========================================================================
-  ; llm-apply-loop-step — message building
-  ; =========================================================================
 
   (assert-true test
     (let [msgs [(Message.user "hello")]
@@ -1321,10 +1142,6 @@
       (= (Message.tool-call-id (Array.unsafe-nth &result 1)) "call_123"))
     "llm-apply-loop-step preserves tool-call IDs in result messages")
 
-  ; =========================================================================
-  ; LLM.chat-loop — error paths
-  ; =========================================================================
-
   (assert-true test
     (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
           tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
@@ -1373,10 +1190,6 @@
         _ false))
     "LLM.chat-loop returns Transport error for unknown provider")
 
-  ; =========================================================================
-  ; Embedding types
-  ; =========================================================================
-
   (assert-equal test
     "text-embedding-3-small"
     (EmbeddingRequest.model
@@ -1388,10 +1201,6 @@
     (Array.length
       (EmbeddingRequest.input &(LLM.embedding-request "m" [@"hello"])))
     "LLM.embedding-request preserves input")
-
-  ; =========================================================================
-  ; OpenAI embedding serialization
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLM.embedding-request "text-embedding-3-small"
@@ -1426,10 +1235,6 @@
         _ false))
     "OpenAI.build-embedding-request includes all input strings")
 
-  ; =========================================================================
-  ; OpenAI embedding response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"data\":[{\"embedding\":[0.1,0.2,0.3],\"index\":0}],\"usage\":{\"total_tokens\":5}}"]
       (match (OpenAI.parse-embedding-response body)
@@ -1453,10 +1258,6 @@
         _ false))
     "OpenAI.parse-embedding-response handles multiple embeddings")
 
-  ; =========================================================================
-  ; Ollama embedding serialization
-  ; =========================================================================
-
   (assert-true test
     (let [req (LLM.embedding-request "all-minilm" [@"test"])
           body (Ollama.build-embedding-request &req)]
@@ -1470,10 +1271,6 @@
         _ false))
     "Ollama.build-embedding-request produces valid JSON with model and input")
 
-  ; =========================================================================
-  ; Ollama embedding response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"model\":\"all-minilm\",\"embeddings\":[[0.1,0.2],[0.3,0.4]]}"]
       (match (Ollama.parse-embedding-response body)
@@ -1483,10 +1280,6 @@
             (= @(EmbeddingResponse.total-tokens &r) 0))
         _ false))
     "Ollama.parse-embedding-response extracts embeddings with zero token count")
-
-  ; =========================================================================
-  ; Gemini embedding serialization
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLM.embedding-request "text-embedding-004" [@"hello"])
@@ -1520,10 +1313,6 @@
         _ false))
     "Gemini.build-embedding-request creates one request per input string")
 
-  ; =========================================================================
-  ; Gemini embedding response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"embeddings\":[{\"values\":[0.5,0.6]},{\"values\":[0.7,0.8]}]}"]
       (match (Gemini.parse-embedding-response body)
@@ -1537,10 +1326,6 @@
         _ false))
     "Gemini.parse-embedding-response extracts embedding values")
 
-  ; =========================================================================
-  ; llm-json-doubles helper
-  ; =========================================================================
-
   (assert-true test
     (let [j (JSON.Arr [(Box.init (JSON.Num 1.0)) (Box.init (JSON.Num 2.5))])
           result (llm-json-doubles &j)]
@@ -1551,10 +1336,6 @@
     0
     (Array.length &(llm-json-doubles &(JSON.Str @"not an array")))
     "llm-json-doubles returns empty array for non-array input")
-
-  ; =========================================================================
-  ; Embedding provider support
-  ; =========================================================================
 
   (assert-true test
     (let [config (LLM.anthropic "sk-test")
@@ -1576,10 +1357,6 @@
         _ false))
     "LLM.embed returns Transport error for unknown provider")
 
-  ; =========================================================================
-  ; Embedding transport error on connection failure
-  ; =========================================================================
-
   (assert-true test
     (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
           req (LLM.embedding-request "m" [@"hi"])]
@@ -1587,10 +1364,6 @@
         (Result.Error err) (match err (LLMError.Transport _) true _ false)
         _ false))
     "LLM.embed returns Transport error on connection failure")
-
-  ; =========================================================================
-  ; llm-embedding-provider? helper
-  ; =========================================================================
 
   (assert-true test
     (and (llm-embedding-provider? "openai")
@@ -1601,10 +1374,6 @@
   (assert-true test
     (not (llm-embedding-provider? "anthropic"))
     "llm-embedding-provider? returns false for anthropic")
-
-  ; =========================================================================
-  ; Embedding edge cases: empty input
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLM.embedding-request "m" [])
@@ -1619,10 +1388,6 @@
             _ false)
         _ false))
     "OpenAI.build-embedding-request produces empty input array for empty input")
-
-  ; =========================================================================
-  ; Embedding edge cases: missing keys in response
-  ; =========================================================================
 
   (assert-true test
     (match (OpenAI.parse-embedding-response "{\"usage\":{\"total_tokens\":0}}")
@@ -1654,10 +1419,6 @@
       _ false)
     "Gemini.parse-embedding-response returns empty embeddings when key missing")
 
-  ; =========================================================================
-  ; Embedding edge cases: malformed JSON response
-  ; =========================================================================
-
   (assert-true test
     (match (OpenAI.parse-embedding-response "not json at all")
       (Result.Error _) true
@@ -1674,10 +1435,6 @@
     (match (Gemini.parse-embedding-response "") (Result.Error _) true _ false)
     "Gemini.parse-embedding-response returns error for malformed JSON")
 
-  ; =========================================================================
-  ; StreamEvent type
-  ; =========================================================================
-
   (assert-true test
     (match (StreamEvent.Text @"hello")
       (StreamEvent.Text tok) (= &tok "hello")
@@ -1689,10 +1446,6 @@
       (StreamEvent.ToolCallEvent tc) (= (ToolCall.name &tc) "fn")
       _ false)
     "StreamEvent.ToolCallEvent carries ToolCall")
-
-  ; =========================================================================
-  ; OpenAI parse-stream-event: text delta
-  ; =========================================================================
 
   (assert-true test
     (let [line "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"]
@@ -1717,10 +1470,6 @@
       _ false)
     "OpenAI parse-stream-event returns ChunkDone for [DONE]")
 
-  ; =========================================================================
-  ; OpenAI parse-stream-event: tool call streaming
-  ; =========================================================================
-
   (assert-true test
     (let [line "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_abc\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}]}"]
       (match (OpenAI.parse-stream-event line)
@@ -1742,10 +1491,6 @@
         (StreamChunk.ChunkSkip) true
         _ false))
     "OpenAI parse-stream-event returns ChunkSkip for empty delta")
-
-  ; =========================================================================
-  ; Anthropic parse-stream-event
-  ; =========================================================================
 
   (assert-true test
     (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}"]
@@ -1799,10 +1544,6 @@
         _ false))
     "Anthropic parse-stream-event returns ChunkSkip for empty thinking_delta")
 
-  ; =========================================================================
-  ; Ollama parse-stream-event
-  ; =========================================================================
-
   (assert-true test
     (let [line "{\"message\":{\"content\":\"hello\"},\"done\":false}"]
       (match (Ollama.parse-stream-event line)
@@ -1833,10 +1574,6 @@
         (StreamChunk.ChunkToolFull tc) (= (ToolCall.name &tc) "get_weather")
         _ false))
     "Ollama parse-stream-event returns ChunkToolFull for done with tool calls")
-
-  ; =========================================================================
-  ; Gemini parse-stream-event
-  ; =========================================================================
 
   (assert-true test
     (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hey\"}]}}]}"]
@@ -1890,10 +1627,6 @@
       (StreamChunk.ChunkDone) true
       _ false)
     "Gemini parse-stream-event returns ChunkDone for finishReason without parts")
-
-  ; =========================================================================
-  ; Streaming request bodies include tools
-  ; =========================================================================
 
   (assert-true test
     (let [tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
@@ -1963,10 +1696,6 @@
         _ false))
     "Gemini streaming request includes tools")
 
-  ; =========================================================================
-  ; llm-stream-parse-event dispatcher
-  ; =========================================================================
-
   (assert-true test
     (match (llm-stream-parse-event "openai"
                                    "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}")
@@ -2000,10 +1729,6 @@
       (StreamChunk.ChunkSkip) true
       _ false)
     "llm-stream-parse-event returns ChunkSkip for unknown provider")
-
-  ; =========================================================================
-  ; Gemini tool message serialization
-  ; =========================================================================
 
   (assert-true test
     (let [msg (Message.tool-result "get_weather" "sunny")
@@ -2055,10 +1780,6 @@
         _ false))
     "Gemini tool message parses JSON content as response object")
 
-  ; =========================================================================
-  ; Gemini assistant message serialization
-  ; =========================================================================
-
   (assert-true test
     (let [msg (Message.assistant "hello")
           j (gemini-message-to-json &msg)]
@@ -2103,10 +1824,6 @@
         _ false))
     "Gemini functionCall includes parsed args")
 
-  ; =========================================================================
-  ; Gemini tool-call ID fallback to name
-  ; =========================================================================
-
   (assert-true test
     (let [tcs [(ToolCall.init @"" @"get_weather" @"{}")]
           handler (fn [tc] @"sunny")
@@ -2120,10 +1837,6 @@
           results (llm-collect-tool-results &tcs &handler)]
       (= (Message.tool-call-id (Array.unsafe-nth &results 0)) "call_123"))
     "llm-collect-tool-results prefers call ID when present")
-
-  ; =========================================================================
-  ; Gemini request with tool-result messages
-  ; =========================================================================
 
   (assert-true test
     (let [req (LLM.chat-request "gemini-pro"
@@ -2154,10 +1867,6 @@
             _ false)
         _ false))
     "Gemini build-request serializes tool-result as functionResponse")
-
-  ; =========================================================================
-  ; Anthropic tool-result wire format: tool_result content block
-  ; =========================================================================
 
   (assert-true test
     (let [m (Message.tool-result "tc1" "sunny")
@@ -2200,10 +1909,6 @@
             _ false)
         _ false))
     "Anthropic tool-result message preserves result content")
-
-  ; =========================================================================
-  ; Anthropic wire format: assistant message with tool calls
-  ; =========================================================================
 
   (assert-true test
     (let [m (Message.init (Role.Assistant)
@@ -2329,10 +2034,6 @@
         _ false))
     "Anthropic tool_use falls back to string for invalid JSON arguments")
 
-  ; =========================================================================
-  ; Anthropic wire format: no tool_calls or tool_call_id on regular messages
-  ; =========================================================================
-
   (assert-true test
     (let [m (Message.user "hello")
           j (llm-message-to-anthropic-json &m)]
@@ -2344,10 +2045,6 @@
           (Maybe.Just _) false
           (Maybe.Nothing) true)))
     "Anthropic regular user message has no tool_calls or tool_call_id keys")
-
-  ; =========================================================================
-  ; Anthropic wire format in full request body
-  ; =========================================================================
 
   (assert-true test
     (let [msgs [(Message.user "weather?")
@@ -2402,10 +2099,6 @@
         _ false))
     "Anthropic full multi-turn tool conversation uses correct wire format")
 
-  ; =========================================================================
-  ; Anthropic tool-call response parsing
-  ; =========================================================================
-
   (assert-true test
     (let [body "{\"content\":[{\"type\":\"text\",\"text\":\"Let me check\"},{\"type\":\"tool_use\",\"id\":\"tc1\",\"name\":\"get_weather\",\"input\":{\"city\":\"Paris\"}}],\"stop_reason\":\"tool_use\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}"]
       (match (Anthropic.parse-response body)
@@ -2419,10 +2112,6 @@
                 "get_weather")))
         _ false))
     "Anthropic.parse-response extracts both text content and tool calls")
-
-  ; =========================================================================
-  ; Streaming parse-delta: Anthropic thinking tokens
-  ; =========================================================================
 
   (assert-true test
     (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}"]
@@ -2461,10 +2150,6 @@
       (Maybe.Nothing) true
       _ false)
     "Anthropic parse-delta ignores non-data lines")
-
-  ; =========================================================================
-  ; Streaming parse-delta: Gemini thinking tokens
-  ; =========================================================================
 
   (assert-true test
     (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}]}"]
