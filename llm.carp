@@ -591,7 +591,7 @@ array of content parts (OpenAI format).")
 
   (defn parse-stream-event [line]
     (cond
-      (String.starts-with? line "data: [DONE]") (StreamChunk.ChunkDone)
+      (String.starts-with? line "data: [DONE]") [(StreamChunk.ChunkDone)]
       (String.starts-with? line "data: ")
         (let [json-str (String.byte-slice line 6 (String.length line))]
           (match (JSON.parse &json-str)
@@ -602,35 +602,45 @@ array of content parts (OpenAI format).")
                     (Maybe.Just choice)
                       (let [tok (llm-json-str &choice &[@"delta" @"content"])]
                         (if (> (String.length &tok) 0)
-                          (StreamChunk.ChunkText tok)
+                          [(StreamChunk.ChunkText tok)]
                           (match (JSON.get-in &choice &[@"delta" @"tool_calls"])
                             (Maybe.Just tcs-arr)
-                              (match (JSON.nth &tcs-arr 0)
-                                (Maybe.Just tc)
-                                  (let [id (llm-json-str &tc &[@"id"])
-                                        name (llm-json-str &tc
-                                                           &[@"function" @"name"])
-                                        args (llm-json-str &tc
-                                                           &[@"function"
-                                                             @"arguments"])]
-                                    (cond
-                                      (> (String.length &id) 0)
-                                        (StreamChunk.ChunkToolStart id name args)
-                                      (> (String.length &args) 0)
-                                        (StreamChunk.ChunkToolDelta args)
-                                      (StreamChunk.ChunkSkip)))
-                                _ (StreamChunk.ChunkSkip))
+                              (match (JSON.as-arr &tcs-arr)
+                                (Maybe.Just boxes)
+                                  (let [chunks (Array.copy-map
+                                          &(fn [bx]
+                                            (let [tc (Box.peek bx)
+                                                  id (llm-json-str tc &[@"id"])
+                                                  name (llm-json-str tc
+                                                                     &[@"function"
+                                                                       @"name"])
+                                                  args (llm-json-str tc
+                                                                     &[@"function"
+                                                                       @"arguments"])]
+                                              (cond
+                                                (> (String.length &id) 0)
+                                                  (StreamChunk.ChunkToolStart id
+                                                                              name
+                                                                              args)
+                                                (> (String.length &args) 0)
+                                                  (StreamChunk.ChunkToolDelta args)
+                                                (StreamChunk.ChunkSkip))))
+                                          &boxes)]
+                                    (if (> (Array.length &chunks) 0)
+                                      chunks
+                                      [(StreamChunk.ChunkSkip)]))
+                                _ [(StreamChunk.ChunkSkip)])
                             _
                               (let [think (llm-json-str &choice
                                                         &[@"delta" @"reasoning"])]
                                 (if (> (String.length &think) 0)
-                                  (StreamChunk.ChunkText (String.concat &[(soh-prefix)
-                                                                          think]))
-                                  (StreamChunk.ChunkSkip))))))
-                    _ (StreamChunk.ChunkSkip))
-                _ (StreamChunk.ChunkSkip))
-            _ (StreamChunk.ChunkSkip)))
-      (StreamChunk.ChunkSkip))))
+                                  [(StreamChunk.ChunkText (String.concat &[(soh-prefix)
+                                                                           think]))]
+                                  [(StreamChunk.ChunkSkip)])))))
+                    _ [(StreamChunk.ChunkSkip)])
+                _ [(StreamChunk.ChunkSkip)])
+            _ [(StreamChunk.ChunkSkip)]))
+      [(StreamChunk.ChunkSkip)])))
 
 (defmodule Anthropic
   (hidden system-text)
@@ -802,32 +812,32 @@ array of content parts (OpenAI format).")
                   (if (=
                       &(llm-json-str &j &[@"content_block" @"type"])
                       "tool_use")
-                    (StreamChunk.ChunkToolStart
-                      (llm-json-str &j &[@"content_block" @"id"])
-                      (llm-json-str &j &[@"content_block" @"name"])
-                      @"")
-                    (StreamChunk.ChunkSkip))
+                    [(StreamChunk.ChunkToolStart
+                       (llm-json-str &j &[@"content_block" @"id"])
+                       (llm-json-str &j &[@"content_block" @"name"])
+                       @"")]
+                    [(StreamChunk.ChunkSkip)])
                 (= &type-str "content_block_delta")
                   (let [delta-type (llm-json-str &j &[@"delta" @"type"])]
                     (cond
                       (= &delta-type "text_delta")
-                        (StreamChunk.ChunkText (llm-json-str &j
-                                                             &[@"delta" @"text"]))
+                        [(StreamChunk.ChunkText (llm-json-str &j
+                                                              &[@"delta" @"text"]))]
                       (= &delta-type "thinking_delta")
                         (let [think (llm-json-str &j &[@"delta" @"thinking"])]
                           (if (> (String.length &think) 0)
-                            (StreamChunk.ChunkText (String.concat &[(soh-prefix)
-                                                                    think]))
-                            (StreamChunk.ChunkSkip)))
+                            [(StreamChunk.ChunkText (String.concat &[(soh-prefix)
+                                                                     think]))]
+                            [(StreamChunk.ChunkSkip)]))
                       (= &delta-type "input_json_delta")
-                        (StreamChunk.ChunkToolDelta
-                          (llm-json-str &j &[@"delta" @"partial_json"]))
-                      (StreamChunk.ChunkSkip)))
-                (= &type-str "content_block_stop") (StreamChunk.ChunkSkip)
-                (= &type-str "message_stop") (StreamChunk.ChunkDone)
-                (StreamChunk.ChunkSkip)))
-          _ (StreamChunk.ChunkSkip)))
-      (StreamChunk.ChunkSkip))))
+                        [(StreamChunk.ChunkToolDelta
+                           (llm-json-str &j &[@"delta" @"partial_json"]))]
+                      [(StreamChunk.ChunkSkip)]))
+                (= &type-str "content_block_stop") [(StreamChunk.ChunkSkip)]
+                (= &type-str "message_stop") [(StreamChunk.ChunkDone)]
+                [(StreamChunk.ChunkSkip)]))
+          _ [(StreamChunk.ChunkSkip)]))
+      [(StreamChunk.ChunkSkip)])))
 
 (defmodule Ollama
   (hidden body)
@@ -948,17 +958,20 @@ array of content parts (OpenAI format).")
                       (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
                       _ [])]
                 (if (> (Array.length &tcs) 0)
-                  (StreamChunk.ChunkToolFull @(Array.unsafe-nth &tcs 0))
-                  (StreamChunk.ChunkDone)))
+                  (Array.copy-map
+                    &(fn [tc] (StreamChunk.ChunkToolFull @tc))
+                    &tcs)
+                  [(StreamChunk.ChunkDone)]))
               (let [tok (llm-json-str &j &[@"message" @"content"])]
                 (if (> (String.length &tok) 0)
-                  (StreamChunk.ChunkText tok)
+                  [(StreamChunk.ChunkText tok)]
                   (let [think (llm-json-str &j &[@"message" @"thinking"])]
                     (if (> (String.length &think) 0)
-                      (StreamChunk.ChunkText (String.concat &[(soh-prefix) think]))
-                      (StreamChunk.ChunkSkip))))))
-          _ (StreamChunk.ChunkSkip))
-      _ (StreamChunk.ChunkSkip))))
+                      [(StreamChunk.ChunkText (String.concat &[(soh-prefix)
+                                                               think]))]
+                      [(StreamChunk.ChunkSkip)])))))
+          _ [(StreamChunk.ChunkSkip)])
+      _ [(StreamChunk.ChunkSkip)])))
 
 (defn gemini-message-to-json [m]
   (match-ref (Message.role m)
@@ -1218,46 +1231,64 @@ array of content parts (OpenAI format).")
                             _ false)]
                       (match (JSON.get-in &cand &[@"content" @"parts"])
                         (Maybe.Just parts)
-                          (match (JSON.nth &parts 0)
-                            (Maybe.Just part)
-                              (match (JSON.get &part "functionCall")
-                                (Maybe.Just fc)
-                                  (StreamChunk.ChunkToolFull
-                                    (ToolCall.init @""
-                                                   (llm-json-str &part
-                                                                 &[@"functionCall"
-                                                                   @"name"])
-                                                   (match (JSON.get &fc "args")
-                                                     (Maybe.Just a)
-                                                       (llm-json-to-str &a)
-                                                     _ @"")))
-                                _
-                                  (let [tok (llm-json-str &part &[@"text"])
-                                        is-thought (match (JSON.get &part
-                                                                    "thought")
-                                          (Maybe.Just v)
-                                            (Maybe.from (JSON.as-bool &v) false)
-                                          _ false)]
-                                    (cond
-                                      (and (> (String.length &tok) 0) is-thought)
-                                        (StreamChunk.ChunkText (String.concat &[(soh-prefix)
-                                                                                tok]))
-                                      (> (String.length &tok) 0)
-                                        (StreamChunk.ChunkText tok)
-                                      has-finish (StreamChunk.ChunkDone)
-                                      (StreamChunk.ChunkSkip))))
+                          (match (JSON.as-arr &parts)
+                            (Maybe.Just boxes)
+                              (let-do [chunks (the (Array StreamChunk) [])]
+                                (for [i 0 (Array.length &boxes)]
+                                  (let [part (Box.peek (Array.unsafe-nth &boxes
+                                                                         i))]
+                                    (match (JSON.get part "functionCall")
+                                      (Maybe.Just fc)
+                                        (set! chunks
+                                              (Array.push-back chunks
+                                                               (StreamChunk.ChunkToolFull
+                                                                 (ToolCall.init @""
+                                                                                (llm-json-str part
+                                                                                              &[@"functionCall"
+                                                                                                @"name"])
+                                                                                (match (JSON.get &fc
+                                                                                                 "args")
+                                                                                  (Maybe.Just a)
+                                                                                    (llm-json-to-str &a)
+                                                                                  _
+                                                                                    @"")))))
+                                      _
+                                        (let [tok (llm-json-str part &[@"text"])
+                                              is-thought (match (JSON.get part
+                                                                          "thought")
+                                                (Maybe.Just v)
+                                                  (Maybe.from (JSON.as-bool &v)
+                                                              false)
+                                                _ false)]
+                                          (cond
+                                            (and (> (String.length &tok) 0)
+                                                 is-thought)
+                                              (set! chunks
+                                                    (Array.push-back chunks
+                                                                     (StreamChunk.ChunkText (String.concat &[(soh-prefix)
+                                                                                                             tok]))))
+                                            (> (String.length &tok) 0)
+                                              (set! chunks
+                                                    (Array.push-back chunks
+                                                                     (StreamChunk.ChunkText tok)))
+                                            ())))))
+                                (if (> (Array.length &chunks) 0)
+                                  chunks
+                                  (if has-finish
+                                    [(StreamChunk.ChunkDone)]
+                                    [(StreamChunk.ChunkSkip)])))
                             _
                               (if has-finish
-                                (StreamChunk.ChunkDone)
-                                (StreamChunk.ChunkSkip)))
+                                [(StreamChunk.ChunkDone)]
+                                [(StreamChunk.ChunkSkip)]))
                         _
                           (if has-finish
-                            (StreamChunk.ChunkDone)
-                            (StreamChunk.ChunkSkip))))
-                  _ (StreamChunk.ChunkSkip))
-              _ (StreamChunk.ChunkSkip))
-          _ (StreamChunk.ChunkSkip)))
-      (StreamChunk.ChunkSkip))))
+                            [(StreamChunk.ChunkDone)]
+                            [(StreamChunk.ChunkSkip)])))
+                  _ [(StreamChunk.ChunkSkip)])
+              _ [(StreamChunk.ChunkSkip)])
+          _ [(StreamChunk.ChunkSkip)]))
+      [(StreamChunk.ChunkSkip)])))
 
 (defn llm-known-provider? [name]
   (or (= name "openai")
@@ -1495,7 +1526,7 @@ with tool call support.
     (= provider "openai") (OpenAI.parse-stream-event line)
     (= provider "anthropic") (Anthropic.parse-stream-event line)
     (= provider "gemini") (Gemini.parse-stream-event line)
-    (StreamChunk.ChunkSkip)))
+    [(StreamChunk.ChunkSkip)]))
 
 (defn llm-finalize-pending-tc [s]
   (when (> (String.length (LlmStream.tc-id s)) 0)
@@ -1547,12 +1578,11 @@ support.")
   (doc poll-event "returns the next `StreamEvent` from the LLM stream, or
 `Nothing` when complete. Unlike `poll`, this handles tool calls from streaming
 responses — incremental tool call data is accumulated internally and emitted
-as complete `StreamEvent.ToolCallEvent` values.
+as complete `StreamEvent.ToolCallEvent` values. Parallel tool calls (multiple
+tool calls in a single response) are fully supported.
 
-Known limitations: only the first tool call per chunk is processed — parallel
-tool calls (multiple tool calls in a single response) are not supported and
-will produce incorrect results. Gemini does not provide tool call IDs, so
-`ToolCall` values from Gemini streams will have an empty string as their ID.
+Gemini does not provide tool call IDs, so `ToolCall` values from Gemini
+streams will have an empty string as their ID.
 
 ```
 (while-do true
@@ -1577,33 +1607,38 @@ will produce incorrect results. Gemini does not provide tool call IDs, so
           (Maybe.Just line)
             (let [trimmed (String.trim &line)]
               (when (> (String.length &trimmed) 0)
-                (match (llm-stream-parse-event (provider s) &trimmed)
-                  (StreamChunk.ChunkText tok)
-                    (set! result (Maybe.Just (StreamEvent.Text tok)))
-                  (StreamChunk.ChunkToolStart id name args)
-                    (do
-                      (llm-finalize-pending-tc s)
-                      (LlmStream.set-tc-id! s id)
-                      (LlmStream.set-tc-name! s name)
-                      (LlmStream.set-tc-args! s args))
-                  (StreamChunk.ChunkToolDelta args)
-                    (LlmStream.set-tc-args! s
-                                            (String.concat &[@(tc-args s) args]))
-                  (StreamChunk.ChunkToolEnd) (llm-finalize-pending-tc s)
-                  (StreamChunk.ChunkToolFull tc)
-                    (LlmStream.set-pending-tcs! s
-                                                (Array.push-back @(pending-tcs s)
-                                                                 tc))
-                  (StreamChunk.ChunkDone)
-                    (do
-                      (llm-finalize-pending-tc s)
-                      (LlmStream.set-stream-done! s true)
-                      (if (> (Array.length (pending-tcs s)) 0)
-                        (let [tc (llm-dequeue-pending-tc s)]
-                          (set! result
-                                (Maybe.Just (StreamEvent.ToolCallEvent tc))))
-                        (set! done true)))
-                  (StreamChunk.ChunkSkip) ())))
+                (let [chunks (llm-stream-parse-event (provider s) &trimmed)]
+                  (for [ci 0 (Array.length &chunks)]
+                    (match-ref (Array.unsafe-nth &chunks ci)
+                      (StreamChunk.ChunkText tok)
+                        (when (Maybe.nothing? &result)
+                          (set! result (Maybe.Just (StreamEvent.Text @tok))))
+                      (StreamChunk.ChunkToolStart id name args)
+                        (do
+                          (llm-finalize-pending-tc s)
+                          (LlmStream.set-tc-id! s @id)
+                          (LlmStream.set-tc-name! s @name)
+                          (LlmStream.set-tc-args! s @args))
+                      (StreamChunk.ChunkToolDelta args)
+                        (LlmStream.set-tc-args! s
+                                                (String.concat &[@(tc-args s)
+                                                                 @args]))
+                      (StreamChunk.ChunkToolEnd) (llm-finalize-pending-tc s)
+                      (StreamChunk.ChunkToolFull tc)
+                        (LlmStream.set-pending-tcs! s
+                                                    (Array.push-back @(pending-tcs s)
+                                                                     @tc))
+                      (StreamChunk.ChunkDone)
+                        (do
+                          (llm-finalize-pending-tc s)
+                          (LlmStream.set-stream-done! s true)
+                          (when (and (not done) (Maybe.nothing? &result))
+                            (if (> (Array.length (pending-tcs s)) 0)
+                              (let [tc (llm-dequeue-pending-tc s)]
+                                (set! result
+                                      (Maybe.Just (StreamEvent.ToolCallEvent tc))))
+                              (set! done true))))
+                      (StreamChunk.ChunkSkip) ())))))
           (Maybe.Nothing)
             (match (ResponseStream.poll (rs s))
               (Maybe.Nothing)

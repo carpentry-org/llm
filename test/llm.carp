@@ -1447,15 +1447,17 @@
     "StreamEvent.ToolCallEvent carries ToolCall")
 
   (assert-true test
-    (let [line "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"]
-      (match (OpenAI.parse-stream-event line)
+    (let [line "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"
+          chunks (OpenAI.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok) (= &tok "hello")
         _ false))
     "OpenAI parse-stream-event returns ChunkText for content delta")
 
   (assert-true test
-    (let [line "data: {\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}"]
-      (match (OpenAI.parse-stream-event line)
+    (let [line "data: {\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}"
+          chunks (OpenAI.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok)
           (and
             (= (Char.to-int (String.char-at &tok 0)) 1)
@@ -1464,71 +1466,73 @@
     "OpenAI parse-stream-event prefixes reasoning with SOH")
 
   (assert-true test
-    (match (OpenAI.parse-stream-event "data: [DONE]")
-      (StreamChunk.ChunkDone) true
-      _ false)
+    (let [chunks (OpenAI.parse-stream-event "data: [DONE]")]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkDone) true _ false))
     "OpenAI parse-stream-event returns ChunkDone for [DONE]")
 
   (assert-true test
-    (let [line "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_abc\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}]}"]
-      (match (OpenAI.parse-stream-event line)
+    (let [line "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_abc\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}]}"
+          chunks (OpenAI.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkToolStart id name args)
           (and (= &id "call_abc") (and (= &name "get_weather") (= &args "")))
         _ false))
     "OpenAI parse-stream-event returns ChunkToolStart for new tool call")
 
   (assert-true test
-    (let [line "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"city\\\"\"}}]}}]}"]
-      (match (OpenAI.parse-stream-event line)
+    (let [line "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"city\\\"\"}}]}}]}"
+          chunks (OpenAI.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkToolDelta args) (= &args "{\"city\"")
         _ false))
     "OpenAI parse-stream-event returns ChunkToolDelta for argument fragment")
 
   (assert-true test
-    (let [line "data: {\"choices\":[{\"delta\":{}}]}"]
-      (match (OpenAI.parse-stream-event line)
-        (StreamChunk.ChunkSkip) true
-        _ false))
+    (let [line "data: {\"choices\":[{\"delta\":{}}]}"
+          chunks (OpenAI.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkSkip) true _ false))
     "OpenAI parse-stream-event returns ChunkSkip for empty delta")
 
   (assert-true test
-    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}"]
-      (match (Anthropic.parse-stream-event line)
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}"
+          chunks (Anthropic.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok) (= &tok "hello")
         _ false))
     "Anthropic parse-stream-event returns ChunkText for text_delta")
 
   (assert-true test
-    (let [line "data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01\",\"name\":\"get_weather\",\"input\":{}}}"]
-      (match (Anthropic.parse-stream-event line)
+    (let [line "data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01\",\"name\":\"get_weather\",\"input\":{}}}"
+          chunks (Anthropic.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkToolStart id name args)
           (and (= &id "toolu_01") (and (= &name "get_weather") (= &args "")))
         _ false))
     "Anthropic parse-stream-event returns ChunkToolStart for tool_use block")
 
   (assert-true test
-    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}"]
-      (match (Anthropic.parse-stream-event line)
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}"
+          chunks (Anthropic.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkToolDelta args) (= &args "{\"city\":")
         _ false))
     "Anthropic parse-stream-event returns ChunkToolDelta for input_json_delta")
 
   (assert-true test
-    (match (Anthropic.parse-stream-event
-        "data: {\"type\":\"content_block_stop\",\"index\":0}")
-      (StreamChunk.ChunkSkip) true
-      _ false)
+    (let [chunks (Anthropic.parse-stream-event
+            "data: {\"type\":\"content_block_stop\",\"index\":0}")]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkSkip) true _ false))
     "Anthropic parse-stream-event returns ChunkSkip for content_block_stop")
 
   (assert-true test
-    (match (Anthropic.parse-stream-event "data: {\"type\":\"message_stop\"}")
-      (StreamChunk.ChunkDone) true
-      _ false)
+    (let [chunks (Anthropic.parse-stream-event "data: {\"type\":\"message_stop\"}")]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkDone) true _ false))
     "Anthropic parse-stream-event returns ChunkDone for message_stop")
 
   (assert-true test
-    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"let me think\"}}"]
-      (match (Anthropic.parse-stream-event line)
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"let me think\"}}"
+          chunks (Anthropic.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok)
           (and
             (= (Char.to-int (String.char-at &tok 0)) 1)
@@ -1537,22 +1541,23 @@
     "Anthropic parse-stream-event prefixes thinking_delta with SOH")
 
   (assert-true test
-    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\"}}"]
-      (match (Anthropic.parse-stream-event line)
-        (StreamChunk.ChunkSkip) true
-        _ false))
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\"}}"
+          chunks (Anthropic.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkSkip) true _ false))
     "Anthropic parse-stream-event returns ChunkSkip for empty thinking_delta")
 
   (assert-true test
-    (let [line "{\"message\":{\"content\":\"hello\"},\"done\":false}"]
-      (match (Ollama.parse-stream-event line)
+    (let [line "{\"message\":{\"content\":\"hello\"},\"done\":false}"
+          chunks (Ollama.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok) (= &tok "hello")
         _ false))
     "Ollama parse-stream-event returns ChunkText for content")
 
   (assert-true test
-    (let [line "{\"message\":{\"thinking\":\"hmm\"},\"done\":false}"]
-      (match (Ollama.parse-stream-event line)
+    (let [line "{\"message\":{\"thinking\":\"hmm\"},\"done\":false}"
+          chunks (Ollama.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok)
           (and
             (= (Char.to-int (String.char-at &tok 0)) 1)
@@ -1561,29 +1566,31 @@
     "Ollama parse-stream-event prefixes thinking with SOH")
 
   (assert-true test
-    (let [line "{\"message\":{\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\"}"]
-      (match (Ollama.parse-stream-event line)
-        (StreamChunk.ChunkDone) true
-        _ false))
+    (let [line "{\"message\":{\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\"}"
+          chunks (Ollama.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkDone) true _ false))
     "Ollama parse-stream-event returns ChunkDone for done without tool calls")
 
   (assert-true test
-    (let [line "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done\":true}"]
-      (match (Ollama.parse-stream-event line)
+    (let [line "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done\":true}"
+          chunks (Ollama.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkToolFull tc) (= (ToolCall.name &tc) "get_weather")
         _ false))
     "Ollama parse-stream-event returns ChunkToolFull for done with tool calls")
 
   (assert-true test
-    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hey\"}]}}]}"]
-      (match (Gemini.parse-stream-event line)
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hey\"}]}}]}"
+          chunks (Gemini.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok) (= &tok "hey")
         _ false))
     "Gemini parse-stream-event returns ChunkText for text part")
 
   (assert-true test
-    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}}]}}]}"]
-      (match (Gemini.parse-stream-event line)
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}}]}}]}"
+          chunks (Gemini.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkToolFull tc)
           (and (= (ToolCall.name &tc) "get_weather")
                (String.contains-string? (ToolCall.arguments &tc) "Paris"))
@@ -1591,14 +1598,14 @@
     "Gemini parse-stream-event returns ChunkToolFull for functionCall")
 
   (assert-true test
-    (match (Gemini.parse-stream-event "not an SSE line")
-      (StreamChunk.ChunkSkip) true
-      _ false)
+    (let [chunks (Gemini.parse-stream-event "not an SSE line")]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkSkip) true _ false))
     "Gemini parse-stream-event returns ChunkSkip for non-data lines")
 
   (assert-true test
-    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hmm\",\"thought\":true}]}}]}"]
-      (match (Gemini.parse-stream-event line)
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hmm\",\"thought\":true}]}}]}"
+          chunks (Gemini.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok)
           (and
             (= (Char.to-int (String.char-at &tok 0)) 1)
@@ -1607,24 +1614,23 @@
     "Gemini parse-stream-event prefixes thinking parts with SOH")
 
   (assert-true test
-    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}]}"]
-      (match (Gemini.parse-stream-event line)
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}]}"
+          chunks (Gemini.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0)
         (StreamChunk.ChunkText tok) (= &tok "hi")
         _ false))
     "Gemini parse-stream-event returns ChunkText when finishReason has content")
 
   (assert-true test
-    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}]}"]
-      (match (Gemini.parse-stream-event line)
-        (StreamChunk.ChunkDone) true
-        _ false))
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}]}"
+          chunks (Gemini.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkDone) true _ false))
     "Gemini parse-stream-event returns ChunkDone for finishReason without content")
 
   (assert-true test
-    (match (Gemini.parse-stream-event
-        "data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}")
-      (StreamChunk.ChunkDone) true
-      _ false)
+    (let [chunks (Gemini.parse-stream-event
+            "data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}")]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkDone) true _ false))
     "Gemini parse-stream-event returns ChunkDone for finishReason without parts")
 
   (assert-true test
@@ -1696,38 +1702,84 @@
     "Gemini streaming request includes tools")
 
   (assert-true test
-    (match (llm-stream-parse-event "openai"
-                                   "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}")
-      (StreamChunk.ChunkText tok) (= &tok "hi")
-      _ false)
+    (let [chunks (llm-stream-parse-event "openai"
+                                         "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}")]
+      (match @(Array.unsafe-nth &chunks 0)
+        (StreamChunk.ChunkText tok) (= &tok "hi")
+        _ false))
     "llm-stream-parse-event dispatches to OpenAI")
 
   (assert-true test
-    (match (llm-stream-parse-event "anthropic"
-                                   "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}")
-      (StreamChunk.ChunkText tok) (= &tok "hi")
-      _ false)
+    (let [chunks (llm-stream-parse-event "anthropic"
+                                         "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}")]
+      (match @(Array.unsafe-nth &chunks 0)
+        (StreamChunk.ChunkText tok) (= &tok "hi")
+        _ false))
     "llm-stream-parse-event dispatches to Anthropic")
 
   (assert-true test
-    (match (llm-stream-parse-event "ollama"
-                                   "{\"message\":{\"content\":\"hi\"},\"done\":false}")
-      (StreamChunk.ChunkText tok) (= &tok "hi")
-      _ false)
+    (let [chunks (llm-stream-parse-event "ollama"
+                                         "{\"message\":{\"content\":\"hi\"},\"done\":false}")]
+      (match @(Array.unsafe-nth &chunks 0)
+        (StreamChunk.ChunkText tok) (= &tok "hi")
+        _ false))
     "llm-stream-parse-event dispatches to Ollama")
 
   (assert-true test
-    (match (llm-stream-parse-event "gemini"
-                                   "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]}}]}")
-      (StreamChunk.ChunkText tok) (= &tok "hi")
-      _ false)
+    (let [chunks (llm-stream-parse-event "gemini"
+                                         "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]}}]}")]
+      (match @(Array.unsafe-nth &chunks 0)
+        (StreamChunk.ChunkText tok) (= &tok "hi")
+        _ false))
     "llm-stream-parse-event dispatches to Gemini")
 
   (assert-true test
-    (match (llm-stream-parse-event "bogus" "anything")
-      (StreamChunk.ChunkSkip) true
-      _ false)
+    (let [chunks (llm-stream-parse-event "bogus" "anything")]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkSkip) true _ false))
     "llm-stream-parse-event returns ChunkSkip for unknown provider")
+
+  (assert-true test
+    (let [line "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}},{\"index\":1,\"id\":\"call_b\",\"type\":\"function\",\"function\":{\"name\":\"get_time\",\"arguments\":\"\"}}]}}]}"
+          chunks (OpenAI.parse-stream-event line)]
+      (and (= (Array.length &chunks) 2)
+           (and
+             (match @(Array.unsafe-nth &chunks 0)
+               (StreamChunk.ChunkToolStart id name _args)
+                 (and (= &id "call_a") (= &name "get_weather"))
+               _ false)
+             (match @(Array.unsafe-nth &chunks 1)
+               (StreamChunk.ChunkToolStart id name _args)
+                 (and (= &id "call_b") (= &name "get_time"))
+               _ false))))
+    "OpenAI parse-stream-event returns multiple ChunkToolStart for parallel tool calls")
+
+  (assert-true test
+    (let [line "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"c1\",\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}},{\"id\":\"c2\",\"function\":{\"name\":\"get_time\",\"arguments\":{\"tz\":\"CET\"}}}]},\"done\":true}"
+          chunks (Ollama.parse-stream-event line)]
+      (and (= (Array.length &chunks) 2)
+           (and
+             (match @(Array.unsafe-nth &chunks 0)
+               (StreamChunk.ChunkToolFull tc)
+                 (= (ToolCall.name &tc) "get_weather")
+               _ false)
+             (match @(Array.unsafe-nth &chunks 1)
+               (StreamChunk.ChunkToolFull tc) (= (ToolCall.name &tc) "get_time")
+               _ false))))
+    "Ollama parse-stream-event returns all tool calls from done message")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}},{\"functionCall\":{\"name\":\"get_time\",\"args\":{\"tz\":\"CET\"}}}]}}]}"
+          chunks (Gemini.parse-stream-event line)]
+      (and (= (Array.length &chunks) 2)
+           (and
+             (match @(Array.unsafe-nth &chunks 0)
+               (StreamChunk.ChunkToolFull tc)
+                 (= (ToolCall.name &tc) "get_weather")
+               _ false)
+             (match @(Array.unsafe-nth &chunks 1)
+               (StreamChunk.ChunkToolFull tc) (= (ToolCall.name &tc) "get_time")
+               _ false))))
+    "Gemini parse-stream-event returns all functionCall parts")
 
   (assert-true test
     (let [msg (Message.tool-result "get_weather" "sunny")
