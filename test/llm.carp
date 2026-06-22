@@ -4,7 +4,6 @@
 (use Test)
 
 (deftest test
-
   (assert-equal test
     "user"
     &(Role.str (Message.role &(Message.user "hi")))
