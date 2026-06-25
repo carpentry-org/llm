@@ -4,40 +4,28 @@
 (use Test)
 
 (defn make-test-llm-stream [provider linebuf]
-  (match (TcpListener.bind &@"127.0.0.1" 0)
-    (Result.Success listener)
-      (let-do [port (TcpListener.local-port &listener)]
-        (match (TcpStream.connect &@"127.0.0.1" port)
-          (Result.Success client)
-            (match (TcpListener.accept &listener)
-              (Result.Success server)
-                (do
-                  (TcpStream.close server)
-                  (TcpListener.close listener)
-                  (let [rs (ResponseStream.init (Connection.Plain client)
-                                                @""
-                                                @""
-                                                false
-                                                true
-                                                200
-                                                (Response.init 200
-                                                               @"OK"
-                                                               @"1.1"
-                                                               (the (Array Cookie) [])
-                                                               (the (Map String (Array String))
-                                                                    {})
-                                                               @""))]
-                    (LlmStream.init rs linebuf @provider @"" @"" @"" [] false)))
-              (Result.Error _)
-                (do
-                  (TcpListener.close listener)
-                  (TcpStream.close client)
-                  (panic "make-test-llm-stream: accept failed")))
-          (Result.Error _)
-            (do
-              (TcpListener.close listener)
-              (panic "make-test-llm-stream: connect failed"))))
-    (Result.Error _) (panic "make-test-llm-stream: bind failed")))
+  (let-do [listener (Result.unsafe-from-success (TcpListener.bind &@"127.0.0.1"
+                                                                  0))
+           port (TcpListener.local-port &listener)
+           client (Result.unsafe-from-success (TcpStream.connect &@"127.0.0.1"
+                                                                 port))
+           server (Result.unsafe-from-success (TcpListener.accept &listener))]
+    (TcpStream.close server)
+    (TcpListener.close listener)
+    (let [rs (ResponseStream.init (Connection.Plain client)
+                                  @""
+                                  @""
+                                  false
+                                  true
+                                  200
+                                  (Response.init 200
+                                                 @"OK"
+                                                 @"1.1"
+                                                 (the (Array Cookie) [])
+                                                 (the (Map String (Array String))
+                                                      {})
+                                                 @""))]
+      (LlmStream.init rs linebuf @provider @"" @"" @"" [] false))))
 
 (deftest test
   (assert-equal test
