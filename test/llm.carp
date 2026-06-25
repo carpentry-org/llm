@@ -4,12 +4,12 @@
 (use Test)
 
 (defn make-test-llm-stream [provider linebuf]
-  (let-do [listener (Result.unsafe-from-success (TcpListener.bind &@"127.0.0.1"
-                                                                  0))
+  (let-do [listener (match (TcpListener.bind &@"127.0.0.1" 0)
+             (Result.Success l) l)
            port (TcpListener.local-port &listener)
-           client (Result.unsafe-from-success (TcpStream.connect &@"127.0.0.1"
-                                                                 port))
-           server (Result.unsafe-from-success (TcpListener.accept &listener))]
+           client (match (TcpStream.connect &@"127.0.0.1" port)
+             (Result.Success c) c)
+           server (match (TcpListener.accept &listener) (Result.Success s) s)]
     (TcpStream.close server)
     (TcpListener.close listener)
     (let [rs (ResponseStream.init (Connection.Plain client)
