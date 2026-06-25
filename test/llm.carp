@@ -3,6 +3,42 @@
 
 (use Test)
 
+(defn make-test-llm-stream [provider linebuf]
+  (match (TcpListener.bind &@"127.0.0.1" 0)
+    (Result.Success listener)
+      (let-do [port (TcpListener.local-port &listener)]
+        (match (TcpStream.connect &@"127.0.0.1" port)
+          (Result.Success client)
+            (match (TcpListener.accept &listener)
+              (Result.Success server)
+                (do
+                  (TcpStream.close server)
+                  (TcpListener.close listener)
+                  (let [rs (ResponseStream.init (Connection.Plain client)
+                                                @""
+                                                @""
+                                                false
+                                                true
+                                                200
+                                                (Response.init 200
+                                                               @"OK"
+                                                               @"1.1"
+                                                               (the (Array Cookie) [])
+                                                               (the (Map String (Array String))
+                                                                    {})
+                                                               @""))]
+                    (LlmStream.init rs linebuf @provider @"" @"" @"" [] false)))
+              (Result.Error _)
+                (do
+                  (TcpListener.close listener)
+                  (TcpStream.close client)
+                  (panic "make-test-llm-stream: accept failed")))
+          (Result.Error _)
+            (do
+              (TcpListener.close listener)
+              (panic "make-test-llm-stream: connect failed"))))
+    (Result.Error _) (panic "make-test-llm-stream: bind failed")))
+
 (deftest test
   (assert-equal test
     "user"
@@ -1780,6 +1816,38 @@
                (StreamChunk.ChunkToolFull tc) (= (ToolCall.name &tc) "get_time")
                _ false))))
     "Gemini parse-stream-event returns all functionCall parts")
+
+  (assert-true test
+    (let-do [s (make-test-llm-stream "openai"
+                                     @"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{}\"}},{\"index\":1,\"id\":\"call_b\",\"type\":\"function\",\"function\":{\"name\":\"get_time\",\"arguments\":\"{}\"}}]}}]}
+data: [DONE]
+")
+             ok true
+             evt1 (LlmStream.poll-event &s)
+             evt2 (LlmStream.poll-event &s)
+             evt3 (LlmStream.poll-event &s)]
+      (match evt1
+        (Maybe.Just e1)
+          (match e1
+            (StreamEvent.ToolCallEvent tc)
+              (when (or (/= (ToolCall.id &tc) "call_a")
+                        (/= (ToolCall.name &tc) "get_weather"))
+                (set! ok false))
+            _ (set! ok false))
+        _ (set! ok false))
+      (match evt2
+        (Maybe.Just e2)
+          (match e2
+            (StreamEvent.ToolCallEvent tc)
+              (when (or (/= (ToolCall.id &tc) "call_b")
+                        (/= (ToolCall.name &tc) "get_time"))
+                (set! ok false))
+            _ (set! ok false))
+        _ (set! ok false))
+      (match evt3 (Maybe.Nothing) () _ (set! ok false))
+      (LlmStream.close s)
+      ok)
+    "poll-event yields two ToolCallEvents then Nothing for parallel OpenAI tool calls")
 
   (assert-true test
     (let [msg (Message.tool-result "get_weather" "sunny")

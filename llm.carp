@@ -1272,11 +1272,10 @@ array of content parts (OpenAI format).")
                                                     (Array.push-back chunks
                                                                      (StreamChunk.ChunkText tok)))
                                             ())))))
-                                (if (> (Array.length &chunks) 0)
-                                  chunks
-                                  (if has-finish
-                                    [(StreamChunk.ChunkDone)]
-                                    [(StreamChunk.ChunkSkip)])))
+                                (cond
+                                  (> (Array.length &chunks) 0) chunks
+                                  has-finish [(StreamChunk.ChunkDone)]
+                                  [(StreamChunk.ChunkSkip)]))
                             _
                               (if has-finish
                                 [(StreamChunk.ChunkDone)]
