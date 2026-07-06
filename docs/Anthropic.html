@@ -113,8 +113,7 @@
                         (build-request req)
                     </pre>
                     <p class="doc">
-                        <p>builds the JSON request body for the Anthropic messages API.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -133,8 +132,7 @@
                         (build-stream-request req)
                     </pre>
                     <p class="doc">
-                        <p>builds a streaming Anthropic messages request.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -153,8 +151,7 @@
                         (endpoint _config)
                     </pre>
                     <p class="doc">
-                        <p>returns the messages API endpoint path.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -173,8 +170,7 @@
                         (headers config body-len)
                     </pre>
                     <p class="doc">
-                        <p>returns the HTTP headers for an Anthropic request.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -193,8 +189,7 @@
                         (parse-delta line)
                     </pre>
                     <p class="doc">
-                        <p>extracts text from an Anthropic streaming SSE data line.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -213,8 +208,26 @@
                         (parse-response body)
                     </pre>
                     <p class="doc">
-                        <p>parses an Anthropic messages API response.</p>
-
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-stream-event">
+                        <h3 id="parse-stream-event">
+                            parse-stream-event
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Array StreamChunk))
+                    </p>
+                    <pre class="args">
+                        (parse-stream-event line)
+                    </pre>
+                    <p class="doc">
+                        
                     </p>
                 </div>
             </div>

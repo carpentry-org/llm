@@ -95,17 +95,22 @@
                     LlmStream
                 </h1>
                 <div class="module-description">
-                    <p>is a pull-based stream of tokens from an LLM response.
-Wraps a <code>ResponseStream</code> and parses provider-specific streaming formats.
-Implements the <code>poll</code> interface.</p>
+                    <p>is a pull-based stream of tokens and tool calls from an LLM
+response. Wraps a <code>ResponseStream</code> and parses provider-specific streaming
+formats. Use <code>poll</code> for text-only streaming or <code>poll-event</code> for streaming
+with tool call support.</p>
 <pre><code>(match (LLM.chat-stream &amp;config &amp;req)
   (Result.Success stream)
     (do
       (while-do true
-        (match (LlmStream.poll &amp;stream)
+        (match (LlmStream.poll-event &amp;stream)
           (Maybe.Nothing) (break)
-          (Maybe.Just tok) (IO.print &amp;tok)))
-      (IO.println &quot;&quot;)
+          (Maybe.Just evt)
+            (match-ref &amp;evt
+              (StreamEvent.Text tok) (IO.print tok)
+              (StreamEvent.ToolCallEvent tc)
+                (IO.println &amp;(String.concat
+                  &amp;[@&quot;tool: &quot; @(ToolCall.name tc)])))))
       (LlmStream.close stream))
   (Result.Error e) (IO.errorln &amp;e))
 </code></pre>
@@ -181,7 +186,7 @@ Implements the <code>poll</code> interface.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [ResponseStream, String, String] LlmStream)
+                        (Fn [ResponseStream, String, String, String, String, String, (Array ToolCall), Bool] LlmStream)
                     </p>
                     <span>
                         
@@ -212,6 +217,26 @@ Implements the <code>poll</code> interface.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#pending-tcs">
+                        <h3 id="pending-tcs">
+                            pending-tcs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Ref (Array ToolCall) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>pending-tcs</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#poll">
                         <h3 id="poll">
                             poll
@@ -227,7 +252,44 @@ Implements the <code>poll</code> interface.</p>
                         (poll s)
                     </pre>
                     <p class="doc">
-                        <p>returns the next token from the LLM stream, or <code>Nothing</code> when complete.</p>
+                        <p>returns the next token from the LLM stream, or <code>Nothing</code> when complete.
+For text-only streaming. Use <code>poll-event</code> for streaming with tool call
+support.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#poll-event">
+                        <h3 id="poll-event">
+                            poll-event
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Maybe StreamEvent))
+                    </p>
+                    <pre class="args">
+                        (poll-event s)
+                    </pre>
+                    <p class="doc">
+                        <p>returns the next <code>StreamEvent</code> from the LLM stream, or
+<code>Nothing</code> when complete. Unlike <code>poll</code>, this handles tool calls from streaming
+responses — incremental tool call data is accumulated internally and emitted
+as complete <code>StreamEvent.ToolCallEvent</code> values. Parallel tool calls (multiple
+tool calls in a single response) are fully supported.</p>
+<p>Gemini does not provide tool call IDs, so <code>ToolCall</code> values from Gemini
+streams will have an empty string as their ID.</p>
+<pre><code>(while-do true
+  (match (LlmStream.poll-event &amp;stream)
+    (Maybe.Nothing) (break)
+    (Maybe.Just evt)
+      (match-ref &amp;evt
+        (StreamEvent.Text tok) (IO.print tok)
+        (StreamEvent.ToolCallEvent tc)
+          (println* &quot;tool: &quot; (ToolCall.name tc)))))
+</code></pre>
 
                     </p>
                 </div>
@@ -332,6 +394,46 @@ Implements the <code>poll</code> interface.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-pending-tcs">
+                        <h3 id="set-pending-tcs">
+                            set-pending-tcs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Array ToolCall)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>pending-tcs</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-pending-tcs!">
+                        <h3 id="set-pending-tcs!">
+                            set-pending-tcs!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a), (Array ToolCall)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>pending-tcs</code> property of a <code>LlmStream</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#set-provider">
                         <h3 id="set-provider">
                             set-provider
@@ -412,6 +514,166 @@ Implements the <code>poll</code> interface.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-stream-done">
+                        <h3 id="set-stream-done">
+                            set-stream-done
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, Bool] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>stream-done</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-stream-done!">
+                        <h3 id="set-stream-done!">
+                            set-stream-done!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a), Bool] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>stream-done</code> property of a <code>LlmStream</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-tc-args">
+                        <h3 id="set-tc-args">
+                            set-tc-args
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, String] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>tc-args</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-tc-args!">
+                        <h3 id="set-tc-args!">
+                            set-tc-args!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a), String] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>tc-args</code> property of a <code>LlmStream</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-tc-id">
+                        <h3 id="set-tc-id">
+                            set-tc-id
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, String] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>tc-id</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-tc-id!">
+                        <h3 id="set-tc-id!">
+                            set-tc-id!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a), String] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>tc-id</code> property of a <code>LlmStream</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-tc-name">
+                        <h3 id="set-tc-name">
+                            set-tc-name
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, String] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>tc-name</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-tc-name!">
+                        <h3 id="set-tc-name!">
+                            set-tc-name!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a), String] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>tc-name</code> property of a <code>LlmStream</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#str">
                         <h3 id="str">
                             str
@@ -432,6 +694,86 @@ Implements the <code>poll</code> interface.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#stream-done">
+                        <h3 id="stream-done">
+                            stream-done
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Ref Bool a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>stream-done</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#tc-args">
+                        <h3 id="tc-args">
+                            tc-args
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Ref String a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>tc-args</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#tc-id">
+                        <h3 id="tc-id">
+                            tc-id
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Ref String a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>tc-id</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#tc-name">
+                        <h3 id="tc-name">
+                            tc-name
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LlmStream a)] (Ref String a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>tc-name</code> property of a <code>LlmStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#update-linebuf">
                         <h3 id="update-linebuf">
                             update-linebuf
@@ -448,6 +790,26 @@ Implements the <code>poll</code> interface.</p>
                     </span>
                     <p class="doc">
                         <p>updates the <code>linebuf</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-pending-tcs">
+                        <h3 id="update-pending-tcs">
+                            update-pending-tcs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Ref (Fn [(Array ToolCall)] (Array ToolCall) a) b)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>pending-tcs</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
@@ -488,6 +850,86 @@ Implements the <code>poll</code> interface.</p>
                     </span>
                     <p class="doc">
                         <p>updates the <code>rs</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-stream-done">
+                        <h3 id="update-stream-done">
+                            update-stream-done
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Ref (Fn [Bool] Bool a) b)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>stream-done</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-tc-args">
+                        <h3 id="update-tc-args">
+                            update-tc-args
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Ref (Fn [String] String a) b)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>tc-args</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-tc-id">
+                        <h3 id="update-tc-id">
+                            update-tc-id
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Ref (Fn [String] String a) b)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>tc-id</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-tc-name">
+                        <h3 id="update-tc-name">
+                            update-tc-name
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [LlmStream, (Ref (Fn [String] String a) b)] LlmStream)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>tc-name</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

@@ -113,8 +113,7 @@
                         (build-embedding-request req)
                     </pre>
                     <p class="doc">
-                        <p>builds the JSON request body for the Ollama embed API.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -133,8 +132,7 @@
                         (build-request req)
                     </pre>
                     <p class="doc">
-                        <p>builds the JSON request body for the Ollama chat API.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -153,8 +151,7 @@
                         (build-stream-request req)
                     </pre>
                     <p class="doc">
-                        <p>builds a streaming Ollama chat request.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -173,8 +170,7 @@
                         (embedding-endpoint _config)
                     </pre>
                     <p class="doc">
-                        <p>returns the embed endpoint path.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -193,8 +189,7 @@
                         (endpoint _config)
                     </pre>
                     <p class="doc">
-                        <p>returns the chat API endpoint path.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -213,8 +208,7 @@
                         (headers _config body-len)
                     </pre>
                     <p class="doc">
-                        <p>returns the HTTP headers for an Ollama request.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -233,11 +227,7 @@
                         (parse-delta line)
                     </pre>
                     <p class="doc">
-                        <p>extracts content from an Ollama streaming NDJSON line.
-Falls back to the <code>thinking</code> field when <code>content</code> is empty (reasoning models).
-Thinking tokens are prefixed with a SOH byte (0x01) so callers can distinguish
-them from regular content tokens.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -256,8 +246,7 @@ them from regular content tokens.</p>
                         (parse-embedding-response body)
                     </pre>
                     <p class="doc">
-                        <p>parses an Ollama embed API response.</p>
-
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -276,8 +265,26 @@ them from regular content tokens.</p>
                         (parse-response body)
                     </pre>
                     <p class="doc">
-                        <p>parses an Ollama chat API response.</p>
-
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-stream-event">
+                        <h3 id="parse-stream-event">
+                            parse-stream-event
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Array StreamChunk))
+                    </p>
+                    <pre class="args">
+                        (parse-stream-event line)
+                    </pre>
+                    <p class="doc">
+                        
                     </p>
                 </div>
             </div>
