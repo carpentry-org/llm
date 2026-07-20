@@ -1,4 +1,4 @@
-(load "git@github.com:carpentry-org/http-client@0.2.1")
+(load "git@github.com:carpentry-org/http-client@0.5.1")
 (load "git@github.com:carpentry-org/json@0.3.0")
 
 (doc Role "is the role of a chat message. `System` for instructions, `User`
