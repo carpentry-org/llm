@@ -1838,6 +1838,27 @@ data: [DONE]
     "poll-event yields two ToolCallEvents then Nothing for parallel OpenAI tool calls")
 
   (assert-true test
+    (let-do [s (make-test-llm-stream "openai"
+                                     @"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{}\"}}]}}]}
+")
+             ok true
+             evt1 (LlmStream.poll-event &s)
+             evt2 (LlmStream.poll-event &s)]
+      (match evt1
+        (Maybe.Just e1)
+          (match e1
+            (StreamEvent.ToolCallEvent tc)
+              (when (or (/= (ToolCall.id &tc) "call_a")
+                        (/= (ToolCall.name &tc) "get_weather"))
+                (set! ok false))
+            _ (set! ok false))
+        _ (set! ok false))
+      (match evt2 (Maybe.Nothing) () _ (set! ok false))
+      (LlmStream.close s)
+      ok)
+    "poll-event stops after a tool call on a stream that ends without [DONE]")
+
+  (assert-true test
     (let [msg (Message.tool-result "get_weather" "sunny")
           j (gemini-message-to-json &msg)]
       (= &(llm-json-str &j &[@"role"]) "user"))

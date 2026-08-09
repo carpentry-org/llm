@@ -1529,9 +1529,9 @@ with tool call support.
 
 (defn llm-finalize-pending-tc [s]
   (when (> (String.length (LlmStream.tc-id s)) 0)
-    (let [tc (ToolCall.init @(LlmStream.tc-id s)
-                            @(LlmStream.tc-name s)
-                            @(LlmStream.tc-args s))]
+    (let-do [tc (ToolCall.init @(LlmStream.tc-id s)
+                               @(LlmStream.tc-name s)
+                               @(LlmStream.tc-args s))]
       (LlmStream.set-pending-tcs! s
                                   (Array.push-back @(LlmStream.pending-tcs s) tc))
       (LlmStream.set-tc-id! s @"")
@@ -1597,7 +1597,7 @@ streams will have an empty string as their ID.
     (let-do [result (the (Maybe StreamEvent) (Maybe.Nothing))
              done false]
       (when (> (Array.length (pending-tcs s)) 0)
-        (let [tc (llm-dequeue-pending-tc s)]
+        (let-do [tc (llm-dequeue-pending-tc s)]
           (set! result (Maybe.Just (StreamEvent.ToolCallEvent tc)))
           (set! done true)))
       (when (and (not done) @(stream-done s)) (set! done true))
