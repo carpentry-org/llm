@@ -3,6 +3,10 @@
 
 (use Test)
 
+(defn cr [] (String.from-chars &[\return]))
+
+(defn crlf [] (String.from-chars &[\return \newline]))
+
 (defn make-test-llm-stream [provider linebuf]
   (let-do [listener (match (TcpListener.bind &@"127.0.0.1" 0)
              (Result.Success l) l)
@@ -2305,4 +2309,90 @@ data: [DONE]
   (assert-true test
     (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"text\":\"\"}]}}]}"]
       (match (Gemini.parse-delta line) (Maybe.Nothing) true _ false))
-    "Gemini parse-delta returns Nothing for empty thought text"))
+    "Gemini parse-delta returns Nothing for empty thought text")
+
+  (assert-true test
+    (match (OpenAI.parse-delta "ääää") (Maybe.Nothing) true _ false)
+    "OpenAI parse-delta survives a line with more bytes than characters")
+
+  (assert-true test
+    (match (Anthropic.parse-delta "ääää") (Maybe.Nothing) true _ false)
+    "Anthropic parse-delta survives a line with more bytes than characters")
+
+  (assert-true test
+    (match (Gemini.parse-delta "ääää") (Maybe.Nothing) true _ false)
+    "Gemini parse-delta survives a line with more bytes than characters")
+
+  (assert-true test
+    (let [chunks (OpenAI.parse-stream-event "ääää")]
+      (match-ref (Array.unsafe-nth &chunks 0)
+        (StreamChunk.ChunkSkip) true
+        _ false))
+    "OpenAI parse-stream-event survives a line with more bytes than characters")
+
+  (assert-true test
+    (let [line "data:{\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"]
+      (match (OpenAI.parse-delta line) (Maybe.Just tok) (= &tok "hello") _ false))
+    "OpenAI parse-delta accepts data lines without a space after the colon")
+
+  (assert-true test
+    (let [line "data:{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}"]
+      (match (Anthropic.parse-delta line) (Maybe.Just tok) (= &tok "hi") _ false))
+    "Anthropic parse-delta accepts data lines without a space after the colon")
+
+  (assert-true test
+    (let [line "data:{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hey\"}]}}]}"]
+      (match (Gemini.parse-delta line) (Maybe.Just tok) (= &tok "hey") _ false))
+    "Gemini parse-delta accepts data lines without a space after the colon")
+
+  (assert-true test
+    (let [chunks (OpenAI.parse-stream-event "data:[DONE]")]
+      (match-ref (Array.unsafe-nth &chunks 0)
+        (StreamChunk.ChunkDone) true
+        _ false))
+    "OpenAI parse-stream-event recognises [DONE] without a space after the colon")
+
+  (assert-equal test
+    " x"
+    &(Maybe.from (llm-sse-data "data:  x") @"")
+    "llm-sse-data strips at most one space after the colon")
+
+  (assert-true test
+    (Maybe.nothing? &(llm-sse-data ": data: ping"))
+    "llm-sse-data ignores comment lines")
+
+  (assert-equal test
+    "data: a"
+    &(Maybe.from
+      (llm-stream-extract-line
+        &(make-test-llm-stream "openai"
+                               (String.concat &[@"data: a"
+                                                (crlf)
+                                                @"data: b"
+                                                (crlf)])))
+      @"")
+    "llm-stream-extract-line strips the CR of a CRLF terminator")
+
+  (assert-true test
+    (let-do [s (make-test-llm-stream "openai"
+                                     (String.concat
+                                       &[@"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"
+                                         (cr)
+                                         @"data: [DONE]"
+                                         (cr)]))]
+      (match (LlmStream.poll &s) (Maybe.Just tok) (= &tok "hello") _ false))
+    "LlmStream poll reads lines from a CR-only stream")
+
+  (assert-true test
+    (let-do [s (make-test-llm-stream "openai"
+                                     (String.concat
+                                       &[@"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"
+                                         (crlf)]))]
+      (match (LlmStream.poll &s) (Maybe.Just tok) (= &tok "hello") _ false))
+    "LlmStream poll reads lines from a CRLF stream")
+
+  (assert-true test
+    (Maybe.nothing?
+      &(llm-stream-extract-line
+        &(make-test-llm-stream "openai" (String.concat &[@"data: a" (cr)]))))
+    "llm-stream-extract-line waits for the byte after a trailing CR"))
