@@ -452,6 +452,16 @@ array of content parts (OpenAI format).")
     (Maybe.Just v) (Maybe.from (JSON.as-str &v) @"")
     _ @""))
 
+(defn llm-byte-starts-with? [s sub]
+  (let [n (String.length sub)]
+    (and (>= (String.length s) n) (= sub &(String.byte-slice s 0 n)))))
+
+(defn llm-sse-data [line]
+  (if (llm-byte-starts-with? line "data:")
+    (let [start (if (llm-byte-starts-with? line "data: ") 6 5)]
+      (Maybe.Just (String.byte-slice line start (String.length line))))
+    (Maybe.Nothing)))
+
 (defmodule OpenAI
   (hidden add-format)
   (private add-format)
@@ -566,10 +576,10 @@ array of content parts (OpenAI format).")
   (defn build-stream-request [req] (OpenAI.body req true))
 
   (defn parse-delta [line]
-    (cond
-      (String.starts-with? line "data: [DONE]") (Maybe.Nothing)
-      (String.starts-with? line "data: ")
-        (let [json-str (String.byte-slice line 6 (String.length line))]
+    (match (llm-sse-data line)
+      (Maybe.Just json-str)
+        (if (llm-byte-starts-with? &json-str "[DONE]")
+          (Maybe.Nothing)
           (match (JSON.parse &json-str)
             (Result.Success j)
               (match (JSON.get &j "choices")
@@ -587,13 +597,13 @@ array of content parts (OpenAI format).")
                     _ (Maybe.Nothing))
                 _ (Maybe.Nothing))
             _ (Maybe.Nothing)))
-      (Maybe.Nothing)))
+      _ (Maybe.Nothing)))
 
   (defn parse-stream-event [line]
-    (cond
-      (String.starts-with? line "data: [DONE]") [(StreamChunk.ChunkDone)]
-      (String.starts-with? line "data: ")
-        (let [json-str (String.byte-slice line 6 (String.length line))]
+    (match (llm-sse-data line)
+      (Maybe.Just json-str)
+        (if (llm-byte-starts-with? &json-str "[DONE]")
+          [(StreamChunk.ChunkDone)]
           (match (JSON.parse &json-str)
             (Result.Success j)
               (match (JSON.get &j "choices")
@@ -640,7 +650,7 @@ array of content parts (OpenAI format).")
                     _ [(StreamChunk.ChunkSkip)])
                 _ [(StreamChunk.ChunkSkip)])
             _ [(StreamChunk.ChunkSkip)]))
-      [(StreamChunk.ChunkSkip)])))
+      _ [(StreamChunk.ChunkSkip)])))
 
 (defmodule Anthropic
   (hidden system-text)
@@ -779,8 +789,8 @@ array of content parts (OpenAI format).")
   (defn build-stream-request [req] (Anthropic.body req true))
 
   (defn parse-delta [line]
-    (if (String.starts-with? line "data: ")
-      (let [json-str (String.byte-slice line 6 (String.length line))]
+    (match (llm-sse-data line)
+      (Maybe.Just json-str)
         (match (JSON.parse &json-str)
           (Result.Success j)
             (match (JSON.get &j "type")
@@ -798,12 +808,12 @@ array of content parts (OpenAI format).")
                           (Maybe.Nothing)))))
                   (Maybe.Nothing))
               _ (Maybe.Nothing))
-          _ (Maybe.Nothing)))
-      (Maybe.Nothing)))
+          _ (Maybe.Nothing))
+      _ (Maybe.Nothing)))
 
   (defn parse-stream-event [line]
-    (if (String.starts-with? line "data: ")
-      (let [json-str (String.byte-slice line 6 (String.length line))]
+    (match (llm-sse-data line)
+      (Maybe.Just json-str)
         (match (JSON.parse &json-str)
           (Result.Success j)
             (let [type-str (llm-json-str &j &[@"type"])]
@@ -836,8 +846,8 @@ array of content parts (OpenAI format).")
                 (= &type-str "content_block_stop") [(StreamChunk.ChunkSkip)]
                 (= &type-str "message_stop") [(StreamChunk.ChunkDone)]
                 [(StreamChunk.ChunkSkip)]))
-          _ [(StreamChunk.ChunkSkip)]))
-      [(StreamChunk.ChunkSkip)])))
+          _ [(StreamChunk.ChunkSkip)])
+      _ [(StreamChunk.ChunkSkip)])))
 
 (defmodule Ollama
   (hidden body)
@@ -1188,8 +1198,8 @@ array of content parts (OpenAI format).")
   (defn build-stream-request [req] (Gemini.body req true))
 
   (defn parse-delta [line]
-    (if (String.starts-with? line "data: ")
-      (let [json-str (String.byte-slice line 6 (String.length line))]
+    (match (llm-sse-data line)
+      (Maybe.Just json-str)
         (match (JSON.parse &json-str)
           (Result.Success j)
             (match (JSON.get &j "candidates")
@@ -1214,12 +1224,12 @@ array of content parts (OpenAI format).")
                       _ (Maybe.Nothing))
                   _ (Maybe.Nothing))
               _ (Maybe.Nothing))
-          _ (Maybe.Nothing)))
-      (Maybe.Nothing)))
+          _ (Maybe.Nothing))
+      _ (Maybe.Nothing)))
 
   (defn parse-stream-event [line]
-    (if (String.starts-with? line "data: ")
-      (let [json-str (String.byte-slice line 6 (String.length line))]
+    (match (llm-sse-data line)
+      (Maybe.Just json-str)
         (match (JSON.parse &json-str)
           (Result.Success j)
             (match (JSON.get &j "candidates")
@@ -1286,8 +1296,8 @@ array of content parts (OpenAI format).")
                             [(StreamChunk.ChunkSkip)])))
                   _ [(StreamChunk.ChunkSkip)])
               _ [(StreamChunk.ChunkSkip)])
-          _ [(StreamChunk.ChunkSkip)]))
-      [(StreamChunk.ChunkSkip)])))
+          _ [(StreamChunk.ChunkSkip)])
+      _ [(StreamChunk.ChunkSkip)])))
 
 (defn llm-known-provider? [name]
   (or (= name "openai")
@@ -1503,11 +1513,19 @@ with tool call support.
 
 (defn llm-stream-extract-line [s]
   (let [buf (LlmStream.linebuf s)
-        pos (String.index-of buf \newline)]
-    (if (< pos 0)
+        len (String.length buf)
+        lf (String.index-of buf \newline)
+        cr (String.index-of buf \return)
+        pos (cond (< cr 0) lf (< lf 0) cr (if (< cr lf) cr lf))]
+    ; a trailing CR may be the first half of a CRLF split across two reads
+    (if (or (< pos 0) (and (= pos cr) (= (inc pos) len)))
       (Maybe.Nothing)
-      (let-do [line (String.byte-slice buf 0 pos)
-               rest (String.byte-slice buf (inc pos) (String.length buf))]
+      (let-do [skip (if (and (= pos cr)
+                             (= (String.char-at buf (inc pos)) \newline))
+                 2
+                 1)
+               line (String.byte-slice buf 0 pos)
+               rest (String.byte-slice buf (+ pos skip) len)]
         (LlmStream.set-linebuf! s rest)
         (Maybe.Just line)))))
 
