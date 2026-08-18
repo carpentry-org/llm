@@ -1608,6 +1608,19 @@
     "Ollama parse-stream-event returns ChunkToolFull for done with tool calls")
 
   (assert-true test
+    (let [line "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done\":true}"
+          chunks (Ollama.parse-stream-event line)]
+      (and (= (Array.length &chunks) 2)
+           (match @(Array.unsafe-nth &chunks 0)
+             (StreamChunk.ChunkToolFull tc)
+               (= (ToolCall.name &tc) "get_weather")
+             _ false)
+           (match @(Array.unsafe-nth &chunks 1)
+             (StreamChunk.ChunkDone) true
+             _ false)))
+    "Ollama parse-stream-event appends ChunkDone to tool calls on done")
+
+  (assert-true test
     (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hey\"}]}}]}"
           chunks (Gemini.parse-stream-event line)]
       (match @(Array.unsafe-nth &chunks 0)
@@ -1648,6 +1661,31 @@
         (StreamChunk.ChunkText tok) (= &tok "hi")
         _ false))
     "Gemini parse-stream-event returns ChunkText when finishReason has content")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}]}"
+          chunks (Gemini.parse-stream-event line)]
+      (and (= (Array.length &chunks) 2)
+           (match @(Array.unsafe-nth &chunks 0)
+             (StreamChunk.ChunkText tok) (= &tok "hi")
+             _ false)
+           (match @(Array.unsafe-nth &chunks 1)
+             (StreamChunk.ChunkDone) true
+             _ false)))
+    "Gemini parse-stream-event appends ChunkDone to text with finishReason")
+
+  (assert-true test
+    (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}}]},\"finishReason\":\"STOP\"}]}"
+          chunks (Gemini.parse-stream-event line)]
+      (and (= (Array.length &chunks) 2)
+           (match @(Array.unsafe-nth &chunks 0)
+             (StreamChunk.ChunkToolFull tc)
+               (= (ToolCall.name &tc) "get_weather")
+             _ false)
+           (match @(Array.unsafe-nth &chunks 1)
+             (StreamChunk.ChunkDone) true
+             _ false)))
+    "Gemini parse-stream-event appends ChunkDone to functionCall with finishReason")
 
   (assert-true test
     (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}]}"
@@ -1784,7 +1822,7 @@
   (assert-true test
     (let [line "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"c1\",\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}},{\"id\":\"c2\",\"function\":{\"name\":\"get_time\",\"arguments\":{\"tz\":\"CET\"}}}]},\"done\":true}"
           chunks (Ollama.parse-stream-event line)]
-      (and (= (Array.length &chunks) 2)
+      (and (= (Array.length &chunks) 3)
            (and
              (match @(Array.unsafe-nth &chunks 0)
                (StreamChunk.ChunkToolFull tc)
@@ -1792,6 +1830,9 @@
                _ false)
              (match @(Array.unsafe-nth &chunks 1)
                (StreamChunk.ChunkToolFull tc) (= (ToolCall.name &tc) "get_time")
+               _ false)
+             (match @(Array.unsafe-nth &chunks 2)
+               (StreamChunk.ChunkDone) true
                _ false))))
     "Ollama parse-stream-event returns all tool calls from done message")
 
