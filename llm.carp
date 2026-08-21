@@ -967,11 +967,11 @@ array of content parts (OpenAI format).")
               (let [tcs (match (JSON.get &j "message")
                       (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
                       _ [])]
-                (if (> (Array.length &tcs) 0)
+                (Array.push-back
                   (Array.copy-map
                     &(fn [tc] (StreamChunk.ChunkToolFull @tc))
                     &tcs)
-                  [(StreamChunk.ChunkDone)]))
+                  (StreamChunk.ChunkDone)))
               (let [tok (llm-json-str &j &[@"message" @"content"])]
                 (if (> (String.length &tok) 0)
                   [(StreamChunk.ChunkText tok)]
@@ -1282,9 +1282,12 @@ array of content parts (OpenAI format).")
                                                     (Array.push-back chunks
                                                                      (StreamChunk.ChunkText tok)))
                                             ())))))
-                                (cond
-                                  (> (Array.length &chunks) 0) chunks
-                                  has-finish [(StreamChunk.ChunkDone)]
+                                (when has-finish
+                                  (set! chunks
+                                        (Array.push-back chunks
+                                                         (StreamChunk.ChunkDone))))
+                                (if (> (Array.length &chunks) 0)
+                                  chunks
                                   [(StreamChunk.ChunkSkip)]))
                             _
                               (if has-finish
