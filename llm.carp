@@ -1197,6 +1197,29 @@ array of content parts (OpenAI format).")
 
   (defn build-stream-request [req] (Gemini.body req true))
 
+  (hidden thought?)
+  (private thought?)
+  (defn thought? [part]
+    (match (JSON.get part "thought")
+      (Maybe.Just v) (Maybe.from (JSON.as-bool &v) false)
+      _ false))
+
+  (hidden join-text-parts)
+  (private join-text-parts)
+  (defn join-text-parts [boxes]
+    (let-do [text @""
+             all-thoughts true]
+      (for [i 0 (Array.length boxes)]
+        (let [part (Box.peek (Array.unsafe-nth boxes i))
+              tok (llm-json-str part &[@"text"])]
+          (when-do (> (String.length &tok) 0)
+            (unless (Gemini.thought? part) (set! all-thoughts false))
+            (set! text (String.concat &[text tok])))))
+      (cond
+        (= (String.length &text) 0) (Maybe.Nothing)
+        all-thoughts (Maybe.Just (String.concat &[(soh-prefix) text]))
+        (Maybe.Just text))))
+
   (defn parse-delta [line]
     (match (llm-sse-data line)
       (Maybe.Just json-str)
@@ -1208,18 +1231,8 @@ array of content parts (OpenAI format).")
                   (Maybe.Just cand)
                     (match (JSON.get-in &cand &[@"content" @"parts"])
                       (Maybe.Just parts)
-                        (match (JSON.nth &parts 0)
-                          (Maybe.Just part)
-                            (let [tok (llm-json-str &part &[@"text"])
-                                  is-thought (match (JSON.get &part "thought")
-                                    (Maybe.Just v)
-                                      (Maybe.from (JSON.as-bool &v) false)
-                                    _ false)]
-                              (if (> (String.length &tok) 0)
-                                (if is-thought
-                                  (Maybe.Just (String.concat &[(soh-prefix) tok]))
-                                  (Maybe.Just tok))
-                                (Maybe.Nothing)))
+                        (match (JSON.as-arr &parts)
+                          (Maybe.Just boxes) (Gemini.join-text-parts &boxes)
                           _ (Maybe.Nothing))
                       _ (Maybe.Nothing))
                   _ (Maybe.Nothing))
@@ -1264,12 +1277,7 @@ array of content parts (OpenAI format).")
                                                                                     @"")))))
                                       _
                                         (let [tok (llm-json-str part &[@"text"])
-                                              is-thought (match (JSON.get part
-                                                                          "thought")
-                                                (Maybe.Just v)
-                                                  (Maybe.from (JSON.as-bool &v)
-                                                              false)
-                                                _ false)]
+                                              is-thought (Gemini.thought? part)]
                                           (cond
                                             (and (> (String.length &tok) 0)
                                                  is-thought)
@@ -1511,7 +1519,7 @@ with tool call support.
    tc-id String
    tc-name String
    tc-args String
-   pending-tcs (Array ToolCall)
+   pending (Array StreamEvent)
    stream-done Bool])
 
 (defn llm-stream-extract-line [s]
@@ -1548,32 +1556,37 @@ with tool call support.
     (= provider "gemini") (Gemini.parse-stream-event line)
     [(StreamChunk.ChunkSkip)]))
 
+(defn llm-enqueue-event [s evt]
+  (LlmStream.set-pending! s (Array.push-back @(LlmStream.pending s) evt)))
+
 (defn llm-finalize-pending-tc [s]
   (when (> (String.length (LlmStream.tc-id s)) 0)
     (let-do [tc (ToolCall.init @(LlmStream.tc-id s)
                                @(LlmStream.tc-name s)
                                @(LlmStream.tc-args s))]
-      (LlmStream.set-pending-tcs! s
-                                  (Array.push-back @(LlmStream.pending-tcs s) tc))
+      (llm-enqueue-event s (StreamEvent.ToolCallEvent tc))
       (LlmStream.set-tc-id! s @"")
       (LlmStream.set-tc-name! s @"")
       (LlmStream.set-tc-args! s @""))))
 
-(defn llm-dequeue-pending-tc [s]
-  (let-do [tc @(Array.unsafe-nth (LlmStream.pending-tcs s) 0)
-           new-pending (the (Array ToolCall) [])]
-    (for [i 1 (Array.length (LlmStream.pending-tcs s))]
-      (set! new-pending
-            (Array.push-back new-pending
-                             @(Array.unsafe-nth (LlmStream.pending-tcs s) i))))
-    (LlmStream.set-pending-tcs! s new-pending)
-    tc))
+(defn llm-dequeue-event [s]
+  (let-do [evt @(Array.unsafe-nth (LlmStream.pending s) 0)
+           rest (the (Array StreamEvent) [])]
+    (for [i 1 (Array.length (LlmStream.pending s))]
+      (set! rest
+            (Array.push-back rest @(Array.unsafe-nth (LlmStream.pending s) i))))
+    (LlmStream.set-pending! s rest)
+    evt))
 
 (defmodule LlmStream
   (doc poll
     "returns the next token from the LLM stream, or `Nothing` when complete.
 For text-only streaming. Use `poll-event` for streaming with tool call
-support.")
+support.
+
+A provider chunk carrying several text parts (Gemini) yields them joined in
+wire order, tagged with `soh-prefix` only when every one of them is a thought.
+Use `poll-event` to keep reasoning and answer text apart.")
   (defn poll [s]
     (let-do [result (Maybe.Nothing)
              done false]
@@ -1599,7 +1612,8 @@ support.")
 `Nothing` when complete. Unlike `poll`, this handles tool calls from streaming
 responses — incremental tool call data is accumulated internally and emitted
 as complete `StreamEvent.ToolCallEvent` values. Parallel tool calls (multiple
-tool calls in a single response) are fully supported.
+tool calls in a single response) are fully supported. Every part of a chunk is
+emitted, in wire order, one event per call.
 
 Gemini does not provide tool call IDs, so `ToolCall` values from Gemini
 streams will have an empty string as their ID.
@@ -1617,22 +1631,20 @@ streams will have an empty string as their ID.
   (defn poll-event [s]
     (let-do [result (the (Maybe StreamEvent) (Maybe.Nothing))
              done false]
-      (when (> (Array.length (pending-tcs s)) 0)
-        (let-do [tc (llm-dequeue-pending-tc s)]
-          (set! result (Maybe.Just (StreamEvent.ToolCallEvent tc)))
-          (set! done true)))
+      (when-do (> (Array.length (pending s)) 0)
+        (set! result (Maybe.Just (llm-dequeue-event s)))
+        (set! done true))
       (when (and (not done) @(stream-done s)) (set! done true))
       (while (and (not done) (Maybe.nothing? &result))
         (match (llm-stream-extract-line s)
           (Maybe.Just line)
             (let [trimmed (String.trim &line)]
               (when (> (String.length &trimmed) 0)
-                (let [chunks (llm-stream-parse-event (provider s) &trimmed)]
+                (let-do [chunks (llm-stream-parse-event (provider s) &trimmed)]
                   (for [ci 0 (Array.length &chunks)]
                     (match-ref (Array.unsafe-nth &chunks ci)
                       (StreamChunk.ChunkText tok)
-                        (when (Maybe.nothing? &result)
-                          (set! result (Maybe.Just (StreamEvent.Text @tok))))
+                        (llm-enqueue-event s (StreamEvent.Text @tok))
                       (StreamChunk.ChunkToolStart id name args)
                         (do
                           (llm-finalize-pending-tc s)
@@ -1645,28 +1657,22 @@ streams will have an empty string as their ID.
                                                                  @args]))
                       (StreamChunk.ChunkToolEnd) (llm-finalize-pending-tc s)
                       (StreamChunk.ChunkToolFull tc)
-                        (LlmStream.set-pending-tcs! s
-                                                    (Array.push-back @(pending-tcs s)
-                                                                     @tc))
+                        (llm-enqueue-event s (StreamEvent.ToolCallEvent @tc))
                       (StreamChunk.ChunkDone)
                         (do
                           (llm-finalize-pending-tc s)
-                          (LlmStream.set-stream-done! s true)
-                          (when (and (not done) (Maybe.nothing? &result))
-                            (if (> (Array.length (pending-tcs s)) 0)
-                              (let [tc (llm-dequeue-pending-tc s)]
-                                (set! result
-                                      (Maybe.Just (StreamEvent.ToolCallEvent tc))))
-                              (set! done true))))
-                      (StreamChunk.ChunkSkip) ())))))
+                          (LlmStream.set-stream-done! s true))
+                      (StreamChunk.ChunkSkip) ()))
+                  (if (> (Array.length (pending s)) 0)
+                    (set! result (Maybe.Just (llm-dequeue-event s)))
+                    (when @(stream-done s) (set! done true))))))
           (Maybe.Nothing)
             (match (ResponseStream.poll (rs s))
               (Maybe.Nothing)
                 (do
                   (llm-finalize-pending-tc s)
-                  (if (> (Array.length (pending-tcs s)) 0)
-                    (let [tc (llm-dequeue-pending-tc s)]
-                      (set! result (Maybe.Just (StreamEvent.ToolCallEvent tc))))
+                  (if (> (Array.length (pending s)) 0)
+                    (set! result (Maybe.Just (llm-dequeue-event s)))
                     (set! done true)))
               (Maybe.Just chunk)
                 (LlmStream.set-linebuf! s

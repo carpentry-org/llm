@@ -186,7 +186,7 @@ with tool call support.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [ResponseStream, String, String, String, String, String, (Array ToolCall), Bool] LlmStream)
+                        (Fn [ResponseStream, String, String, String, String, String, (Array StreamEvent), Bool] LlmStream)
                     </p>
                     <span>
                         
@@ -217,22 +217,22 @@ with tool call support.</p>
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#pending-tcs">
-                        <h3 id="pending-tcs">
-                            pending-tcs
+                    <a class="anchor" href="#pending">
+                        <h3 id="pending">
+                            pending
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref LlmStream a)] (Ref (Array ToolCall) a))
+                        (Fn [(Ref LlmStream a)] (Ref (Array StreamEvent) a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>pending-tcs</code> property of a <code>LlmStream</code>.</p>
+                        <p>gets the <code>pending</code> property of a <code>LlmStream</code>.</p>
 
                     </p>
                 </div>
@@ -255,6 +255,9 @@ with tool call support.</p>
                         <p>returns the next token from the LLM stream, or <code>Nothing</code> when complete.
 For text-only streaming. Use <code>poll-event</code> for streaming with tool call
 support.</p>
+<p>A provider chunk carrying several text parts (Gemini) yields them joined in
+wire order, tagged with <code>soh-prefix</code> only when every one of them is a thought.
+Use <code>poll-event</code> to keep reasoning and answer text apart.</p>
 
                     </p>
                 </div>
@@ -278,7 +281,8 @@ support.</p>
 <code>Nothing</code> when complete. Unlike <code>poll</code>, this handles tool calls from streaming
 responses — incremental tool call data is accumulated internally and emitted
 as complete <code>StreamEvent.ToolCallEvent</code> values. Parallel tool calls (multiple
-tool calls in a single response) are fully supported.</p>
+tool calls in a single response) are fully supported. Every part of a chunk is
+emitted, in wire order, one event per call.</p>
 <p>Gemini does not provide tool call IDs, so <code>ToolCall</code> values from Gemini
 streams will have an empty string as their ID.</p>
 <pre><code>(while-do true
@@ -394,42 +398,42 @@ streams will have an empty string as their ID.</p>
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-pending-tcs">
-                        <h3 id="set-pending-tcs">
-                            set-pending-tcs
+                    <a class="anchor" href="#set-pending">
+                        <h3 id="set-pending">
+                            set-pending
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [LlmStream, (Array ToolCall)] LlmStream)
+                        (Fn [LlmStream, (Array StreamEvent)] LlmStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>pending-tcs</code> property of a <code>LlmStream</code>.</p>
+                        <p>sets the <code>pending</code> property of a <code>LlmStream</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-pending-tcs!">
-                        <h3 id="set-pending-tcs!">
-                            set-pending-tcs!
+                    <a class="anchor" href="#set-pending!">
+                        <h3 id="set-pending!">
+                            set-pending!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref LlmStream a), (Array ToolCall)] ())
+                        (Fn [(Ref LlmStream a), (Array StreamEvent)] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>pending-tcs</code> property of a <code>LlmStream</code> in place.</p>
+                        <p>sets the <code>pending</code> property of a <code>LlmStream</code> in place.</p>
 
                     </p>
                 </div>
@@ -794,22 +798,22 @@ streams will have an empty string as their ID.</p>
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-pending-tcs">
-                        <h3 id="update-pending-tcs">
-                            update-pending-tcs
+                    <a class="anchor" href="#update-pending">
+                        <h3 id="update-pending">
+                            update-pending
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [LlmStream, (Ref (Fn [(Array ToolCall)] (Array ToolCall) a) b)] LlmStream)
+                        (Fn [LlmStream, (Ref (Fn [(Array StreamEvent)] (Array StreamEvent) a) b)] LlmStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>pending-tcs</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>pending</code> property of a <code>LlmStream</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
