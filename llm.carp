@@ -1612,8 +1612,9 @@ Use `poll-event` to keep reasoning and answer text apart.")
 `Nothing` when complete. Unlike `poll`, this handles tool calls from streaming
 responses — incremental tool call data is accumulated internally and emitted
 as complete `StreamEvent.ToolCallEvent` values. Parallel tool calls (multiple
-tool calls in a single response) are fully supported. Every part of a chunk is
-emitted, in wire order, one event per call.
+tool calls in a single response) are fully supported. Events are returned one
+at a time, in wire order; a chunk carrying several parts (Gemini) yields one
+event per part rather than only the first.
 
 Gemini does not provide tool call IDs, so `ToolCall` values from Gemini
 streams will have an empty string as their ID.
@@ -1644,7 +1645,9 @@ streams will have an empty string as their ID.
                   (for [ci 0 (Array.length &chunks)]
                     (match-ref (Array.unsafe-nth &chunks ci)
                       (StreamChunk.ChunkText tok)
-                        (llm-enqueue-event s (StreamEvent.Text @tok))
+                        (do
+                          (llm-finalize-pending-tc s)
+                          (llm-enqueue-event s (StreamEvent.Text @tok)))
                       (StreamChunk.ChunkToolStart id name args)
                         (do
                           (llm-finalize-pending-tc s)

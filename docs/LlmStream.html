@@ -281,8 +281,9 @@ Use <code>poll-event</code> to keep reasoning and answer text apart.</p>
 <code>Nothing</code> when complete. Unlike <code>poll</code>, this handles tool calls from streaming
 responses — incremental tool call data is accumulated internally and emitted
 as complete <code>StreamEvent.ToolCallEvent</code> values. Parallel tool calls (multiple
-tool calls in a single response) are fully supported. Every part of a chunk is
-emitted, in wire order, one event per call.</p>
+tool calls in a single response) are fully supported. Events are returned one
+at a time, in wire order; a chunk carrying several parts (Gemini) yields one
+event per part rather than only the first.</p>
 <p>Gemini does not provide tool call IDs, so <code>ToolCall</code> values from Gemini
 streams will have an empty string as their ID.</p>
 <pre><code>(while-do true
