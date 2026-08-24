@@ -831,8 +831,10 @@ array of content parts (OpenAI format).")
                   (let [delta-type (llm-json-str &j &[@"delta" @"type"])]
                     (cond
                       (= &delta-type "text_delta")
-                        [(StreamChunk.ChunkText (llm-json-str &j
-                                                              &[@"delta" @"text"]))]
+                        (let [tok (llm-json-str &j &[@"delta" @"text"])]
+                          (if (> (String.length &tok) 0)
+                            [(StreamChunk.ChunkText tok)]
+                            [(StreamChunk.ChunkSkip)]))
                       (= &delta-type "thinking_delta")
                         (let [think (llm-json-str &j &[@"delta" @"thinking"])]
                           (if (> (String.length &think) 0)
