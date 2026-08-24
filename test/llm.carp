@@ -31,6 +31,43 @@
                                                  @""))]
       (LlmStream.init rs linebuf @provider @"" @"" @"" [] false))))
 
+(defn render-token [t]
+  (if (String.starts-with? t &(soh-prefix))
+    (String.concat &[@"thought:" (String.byte-slice t 1 (String.length t))])
+    (String.concat &[@"text:" @t])))
+
+(defn drain-events [provider linebuf]
+  (let-do [s (make-test-llm-stream provider linebuf)
+           out (the (Array String) [])
+           go true]
+    (while go
+      (match (LlmStream.poll-event &s)
+        (Maybe.Nothing) (set! go false)
+        (Maybe.Just evt)
+          (set! out
+                (Array.push-back out
+                                 (match-ref &evt
+                                   (StreamEvent.Text t) (render-token t)
+                                   (StreamEvent.ToolCallEvent tc)
+                                     (String.concat
+                                       &[@"tool:"
+                                         @(ToolCall.name tc)
+                                         @":"
+                                         @(ToolCall.arguments tc)]))))))
+    (LlmStream.close s)
+    out))
+
+(defn drain-tokens [provider linebuf]
+  (let-do [s (make-test-llm-stream provider linebuf)
+           out (the (Array String) [])
+           go true]
+    (while go
+      (match (LlmStream.poll &s)
+        (Maybe.Nothing) (set! go false)
+        (Maybe.Just tok) (set! out (Array.push-back out (render-token &tok)))))
+    (LlmStream.close s)
+    out))
+
 (deftest test
   (assert-equal test
     "user"
@@ -1530,6 +1567,18 @@
     "Anthropic parse-stream-event returns ChunkText for text_delta")
 
   (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}"
+          chunks (Anthropic.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkSkip) true _ false))
+    "Anthropic parse-stream-event returns ChunkSkip for empty text_delta")
+
+  (assert-true test
+    (let [line "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\"}}"
+          chunks (Anthropic.parse-stream-event line)]
+      (match @(Array.unsafe-nth &chunks 0) (StreamChunk.ChunkSkip) true _ false))
+    "Anthropic parse-stream-event returns ChunkSkip for a text_delta with no text field")
+
+  (assert-true test
     (let [line "data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01\",\"name\":\"get_weather\",\"input\":{}}}"
           chunks (Anthropic.parse-stream-event line)]
       (match @(Array.unsafe-nth &chunks 0)
@@ -2436,4 +2485,158 @@ data: [DONE]
     (Maybe.nothing?
       &(llm-stream-extract-line
         &(make-test-llm-stream "openai" (String.concat &[@"data: a" (cr)]))))
-    "llm-stream-extract-line waits for the byte after a trailing CR"))
+    "llm-stream-extract-line waits for the byte after a trailing CR")
+
+  (assert-equal test
+    &[@"thought:THINKING" @"text:ANSWER"]
+    &(drain-events "gemini"
+                   @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"THINKING\",\"thought\":true},{\"text\":\"ANSWER\"}]}}]}
+")
+    "poll-event emits every Gemini part of a thought/answer chunk in order")
+
+  (assert-equal test
+    &[@"text:AAA" @"text:BBB"]
+    &(drain-events "gemini"
+                   @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"AAA\"},{\"text\":\"BBB\"}]}}]}
+")
+    "poll-event emits both text parts of one Gemini chunk")
+
+  (assert-equal test
+    &[@"tool:f:{}" @"text:TAIL"]
+    &(drain-events "gemini"
+                   @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"f\",\"args\":{}}},{\"text\":\"TAIL\"}]}}]}
+")
+    "poll-event keeps wire order when a Gemini chunk mixes a tool call and text")
+
+  (assert-equal test
+    &[@"text:AAA" @"text:BBB"]
+    &(drain-events "gemini"
+                   @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"AAA\"},{\"text\":\"BBB\"}]},\"finishReason\":\"STOP\"}]}
+")
+    "poll-event drains every part of a Gemini chunk that also carries finishReason")
+
+  (assert-equal test
+    &[@"text:hi" @"tool:get_weather:[1,2]"]
+    &(drain-events "openai"
+                   @"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}
+data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"[1,\"}}]}}]}
+data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"2]\"}}]}}]}
+data: [DONE]
+")
+    "poll-event accumulates an OpenAI tool call across chunks and emits it after the text")
+
+  (assert-equal test
+    &[@"tool:fa:[1,2]" @"tool:fb:[3,4]" @"text:TAIL"]
+    &(drain-events "openai"
+                   @"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"fa\",\"arguments\":\"[1,\"}}]}}]}
+data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"2]\"}}]}}]}
+data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_b\",\"type\":\"function\",\"function\":{\"name\":\"fb\",\"arguments\":\"[3,4]\"}}]}}]}
+data: {\"choices\":[{\"delta\":{\"content\":\"TAIL\"}}]}
+data: [DONE]
+")
+    "poll-event emits both OpenAI parallel tool calls before the text that follows them")
+
+  (assert-equal test
+    &[@"thought:hmm" @"tool:get_time:[1,2]"]
+    &(drain-events "anthropic"
+                   @"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hmm\"}}
+data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_time\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"[1,\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"2]\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"message_stop\"}
+")
+    "poll-event accumulates an Anthropic tool call across chunks")
+
+  (assert-equal test
+    &[@"tool:ga:[1,2]" @"tool:gb:[3,4]" @"text:TAIL"]
+    &(drain-events "anthropic"
+                   @"data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"ga\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"[1,\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"2]\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"gb\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"[3,4]\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"text\",\"text\":\"\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"TAIL\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"message_stop\"}
+")
+    "poll-event emits both Anthropic tool calls before the text that follows them")
+
+  (assert-equal test
+    &[@"tool:ga:[1,2]" @"text:MID" @"tool:gb:[3,4]"]
+    &(drain-events "anthropic"
+                   @"data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"ga\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"[1,2]\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"MID\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"gb\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"[3,4]\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"message_stop\"}
+")
+    "poll-event keeps text that arrives between two Anthropic tool calls between them")
+
+  (assert-equal test
+    &[@"tool:ga:[1,2]"]
+    &(drain-events "anthropic"
+                   @"data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"ga\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"[1,\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"2]\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"message_stop\"}
+")
+    "poll-event keeps an Anthropic tool call whole across an empty text_delta")
+
+  (assert-equal test
+    &[@"tool:ga:[1,2]" @"text:TAIL"]
+    &(drain-events "anthropic"
+                   @"data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"ga\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"[1,2]\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"text\",\"text\":\"\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}
+data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"TAIL\"}}
+data: {\"type\":\"content_block_stop\"}
+data: {\"type\":\"message_stop\"}
+")
+    "poll-event emits no event for an empty Anthropic text_delta")
+
+  (assert-equal test
+    &[@"text:hi" @"tool:a:{}" @"tool:b:{}"]
+    &(drain-events "ollama" @"{\"message\":{\"content\":\"hi\"},\"done\":false}
+{\"message\":{\"tool_calls\":[{\"function\":{\"name\":\"a\",\"arguments\":{}}},{\"function\":{\"name\":\"b\",\"arguments\":{}}}]},\"done\":true}
+")
+    "poll-event emits Ollama text before both tool calls of a done chunk")
+
+  (assert-equal test
+    &[@"text:THINKINGANSWER"]
+    &(drain-tokens "gemini"
+                   @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"THINKING\",\"thought\":true},{\"text\":\"ANSWER\"}]}}]}
+")
+    "poll joins a mixed Gemini thought/answer chunk into one untagged token")
+
+  (assert-equal test
+    &[@"text:AAABBB"]
+    &(drain-tokens "gemini"
+                   @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"AAA\"},{\"text\":\"BBB\"}]}}]}
+")
+    "poll joins both text parts of one Gemini chunk")
+
+  (assert-equal test
+    &[@"text:TAIL"]
+    &(drain-tokens "gemini"
+                   @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"f\",\"args\":{}}},{\"text\":\"TAIL\"}]}}]}
+")
+    "poll keeps the text part of a Gemini chunk that starts with a tool call")
+
+  (assert-equal test
+    &[@"thought:THINKING"]
+    &(drain-tokens "gemini"
+                   @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"THINKING\",\"thought\":true}]}}]}
+")
+    "poll tags an all-thought Gemini chunk with the SOH prefix"))
