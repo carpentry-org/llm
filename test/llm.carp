@@ -2683,6 +2683,15 @@ data: {\"type\":\"message_stop\"}
 
   (assert-true test
     (Array.all?
+      &(fn [ms]
+        (>=
+          (RetryPolicy.jittered &(RetryPolicy.init 3 500 Int.MAX false true) @ms)
+          0))
+      &[1000 1073741823 2147483646 2147483647])
+    "jittered never draws a negative delay, up to an Int.MAX cap")
+
+  (assert-true test
+    (Array.all?
       &(fn [c] (RetryPolicy.retryable-status? c))
       &[429 500 502 503 504])
     "retryable-status? accepts 429 and the retryable 5xx")
@@ -2790,4 +2799,45 @@ data: {\"type\":\"message_stop\"}
                              &(LLM.chat-request "m" [(Message.user "hi")] 8 0.0)
                              &(RetryPolicy.init 3 60 200 false false)))
       (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l)))
-    "chat-with-retry sleeps the computed delay between attempts"))
+    "chat-with-retry sleeps the computed delay between attempts")
+
+  (assert-true test
+    (let-do [url (closed-url)
+             req (LLM.chat-request "m" [(Message.user "hi")] 8 0.0)
+             policy (RetryPolicy.init 3 60 200 false false)
+             t0 (System.nanotime)
+             r (LLM.chat-stream-with-retry &(LLM.vllm &url "") &req &policy)]
+      (and
+        (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
+        (match r (Result.Error (LLMError.Transport _)) true _ false)))
+    "chat-stream-with-retry sleeps between attempts before giving up")
+
+  (assert-true test
+    (let-do [url (closed-url)
+             t0 (System.nanotime)
+             r (LLM.embed-with-retry &(LLM.vllm &url "")
+                                     &(LLM.embedding-request "m" [@"hi"])
+                                     &(RetryPolicy.init 3 60 200 false false))]
+      (and
+        (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
+        (match r (Result.Error (LLMError.Transport _)) true _ false)))
+    "embed-with-retry sleeps between attempts before giving up")
+
+  (assert-true test
+    (let-do [url (closed-url)
+             tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+             handler (fn [tc] @"result")
+             t0 (System.nanotime)
+             r (LLM.chat-loop-with-retry &(LLM.vllm &url "")
+                                         "m"
+                                         [(Message.user "hi")]
+                                         8
+                                         0.0
+                                         &tools
+                                         handler
+                                         5
+                                         &(RetryPolicy.init 3 60 200 false false))]
+      (and
+        (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
+        (match r (Result.Error (LLMError.Transport _)) true _ false)))
+    "chat-loop-with-retry sleeps between attempts before giving up"))

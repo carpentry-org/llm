@@ -486,6 +486,9 @@ the remaining 4xx included, is reported to the caller unretried.</p>
                     <p class="doc">
                         <p>checks whether an <code>LLMError</code> deserves another attempt.
 Transport failures always do; API errors are judged by <code>retryable-status?</code>.</p>
+<p>This is for callers holding an <code>LLMError</code>. The <code>-with-retry</code> entry points
+decide before an error exists, from the response status, and so reach for
+<code>retryable-status?</code> directly.</p>
 
                     </p>
                 </div>

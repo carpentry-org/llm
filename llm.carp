@@ -212,7 +212,11 @@ the remaining 4xx included, is reported to the caller unretried.")
   (defn retryable-status? [code] (Array.contains? &retryable-codes code))
 
   (doc retryable? "checks whether an `LLMError` deserves another attempt.
-Transport failures always do; API errors are judged by `retryable-status?`.")
+Transport failures always do; API errors are judged by `retryable-status?`.
+
+This is for callers holding an `LLMError`. The `-with-retry` entry points
+decide before an error exists, from the response status, and so reach for
+`retryable-status?` directly.")
   (defn retryable? [e]
     (match-ref e
       (LLMError.Transport _) true
@@ -233,7 +237,9 @@ double per attempt, clamped to `max-delay-ms`.")
   (doc jittered "draws a delay uniformly from `[0, ms]` if the policy asks for
 jitter, and returns `ms` unchanged otherwise.")
   (defn jittered [p ms]
-    (if (and @(jitter p) (> ms 0)) (Int.random-between 0 (Int.inc ms)) ms))
+    (if (and @(jitter p) (> ms 0))
+      (Int.random-between 0 (Int.inc (min ms (Int.dec Int.MAX))))
+      ms))
 
   (doc retry-after-delay "converts a `Retry-After` wait of `secs` seconds into a
 delay in milliseconds, clamped to `max-delay-ms` so that a server cannot park a
