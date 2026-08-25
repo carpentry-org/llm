@@ -97,58 +97,40 @@
             </div>
             <div class="module">
                 <h1>
-                    Message
+                    RetryPolicy
                 </h1>
                 <div class="module-description">
-                    <p>a single chat message in a conversation.</p>
+                    <p>controls automatic retries for the <code>-with-retry</code> entry points.</p>
 <ul>
-<li><code>role</code>: who the message is from</li>
-<li><code>content</code>: the text content</li>
-<li><code>tool-calls</code>: non-empty for assistant messages that invoke tools</li>
-<li><code>tool-call-id</code>: non-empty for tool result messages (role = <code>Tool</code>)</li>
-<li><code>images</code>: images to include (only meaningful for user messages)</li>
+<li><code>max-attempts</code>: total tries including the first, so <code>1</code> never retries</li>
+<li><code>base-delay-ms</code>: how long to wait after the first failure</li>
+<li><code>max-delay-ms</code>: an upper bound on every delay, <code>Retry-After</code> included</li>
+<li><code>honour-retry-after</code>: whether a <code>Retry-After</code> response header replaces the
+computed delay</li>
+<li><code>jitter</code>: whether to draw each computed delay uniformly from <code>[0, delay]</code></li>
 </ul>
-<p>Use the constructors in the <code>Message</code> module instead of <code>Message.init</code>
-directly.</p>
+<p>Jitter is off by default so that delays are reproducible; turn it on when many
+clients share one provider and would otherwise retry in lockstep.</p>
+<p>Build with <code>RetryPolicy.default</code> or <code>RetryPolicy.none</code>.</p>
 
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#assistant">
-                        <h3 id="assistant">
-                            assistant
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref String a)] Message)
-                    </p>
-                    <pre class="args">
-                        (assistant s)
-                    </pre>
-                    <p class="doc">
-                        <p>creates an assistant message.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#content">
-                        <h3 id="content">
-                            content
+                    <a class="anchor" href="#base-delay-ms">
+                        <h3 id="base-delay-ms">
+                            base-delay-ms
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a)] (Ref String a))
+                        (Fn [(Ref RetryPolicy a)] (Ref Int a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>content</code> property of a <code>Message</code>.</p>
+                        <p>gets the <code>base-delay-ms</code> property of a <code>RetryPolicy</code>.</p>
 
                     </p>
                 </div>
@@ -162,13 +144,56 @@ directly.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a)] Message)
+                        (Fn [(Ref RetryPolicy a)] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>copies a <code>Message</code>.</p>
+                        <p>copies a <code>RetryPolicy</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#default">
+                        <h3 id="default">
+                            default
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [] RetryPolicy)
+                    </p>
+                    <pre class="args">
+                        (default)
+                    </pre>
+                    <p class="doc">
+                        <p>is a conservative policy: three attempts, 500ms of base delay
+doubling up to a 30s cap, honouring <code>Retry-After</code>, without jitter.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#delay-for">
+                        <h3 id="delay-for">
+                            delay-for
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref RetryPolicy a), Int] Int)
+                    </p>
+                    <pre class="args">
+                        (delay-for p attempt)
+                    </pre>
+                    <p class="doc">
+                        <p>returns the delay in milliseconds to wait before <code>attempt</code>,
+counting the first retry as attempt 1. Delays start at <code>base-delay-ms</code> and
+double per attempt, clamped to <code>max-delay-ms</code>.</p>
 
                     </p>
                 </div>
@@ -182,54 +207,33 @@ directly.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message] ())
+                        (Fn [RetryPolicy] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>deletes a <code>Message</code>. Should usually not be called manually.</p>
+                        <p>deletes a <code>RetryPolicy</code>. Should usually not be called manually.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#from-response">
-                        <h3 id="from-response">
-                            from-response
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref LLMResponse a)] Message)
-                    </p>
-                    <pre class="args">
-                        (from-response r)
-                    </pre>
-                    <p class="doc">
-                        <p>converts an LLMResponse into an assistant message,
-preserving any tool calls for conversation history.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#images">
-                        <h3 id="images">
-                            images
+                    <a class="anchor" href="#honour-retry-after">
+                        <h3 id="honour-retry-after">
+                            honour-retry-after
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a)] (Ref (Array ImageContent) a))
+                        (Fn [(Ref RetryPolicy a)] (Ref Bool a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>images</code> property of a <code>Message</code>.</p>
+                        <p>gets the <code>honour-retry-after</code> property of a <code>RetryPolicy</code>.</p>
 
                     </p>
                 </div>
@@ -243,13 +247,160 @@ preserving any tool calls for conversation history.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Role, String, (Array ToolCall), String, (Array ImageContent)] Message)
+                        (Fn [Int, Int, Int, Bool, Bool] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>creates a <code>Message</code>.</p>
+                        <p>creates a <code>RetryPolicy</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#jitter">
+                        <h3 id="jitter">
+                            jitter
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref RetryPolicy a)] (Ref Bool a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>jitter</code> property of a <code>RetryPolicy</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#jittered">
+                        <h3 id="jittered">
+                            jittered
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref RetryPolicy a), Int] Int)
+                    </p>
+                    <pre class="args">
+                        (jittered p ms)
+                    </pre>
+                    <p class="doc">
+                        <p>draws a delay uniformly from <code>[0, ms]</code> if the policy asks for
+jitter, and returns <code>ms</code> unchanged otherwise.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#max-attempts">
+                        <h3 id="max-attempts">
+                            max-attempts
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref RetryPolicy a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>max-attempts</code> property of a <code>RetryPolicy</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#max-delay-ms">
+                        <h3 id="max-delay-ms">
+                            max-delay-ms
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref RetryPolicy a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>max-delay-ms</code> property of a <code>RetryPolicy</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#none">
+                        <h3 id="none">
+                            none
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [] RetryPolicy)
+                    </p>
+                    <pre class="args">
+                        (none)
+                    </pre>
+                    <p class="doc">
+                        <p>is a policy that never retries. It is what <code>LLM.chat</code>,
+<code>LLM.chat-stream</code>, <code>LLM.chat-loop</code> and <code>LLM.embed</code> use.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-retry-after">
+                        <h3 id="parse-retry-after">
+                            parse-retry-after
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Maybe Int))
+                    </p>
+                    <pre class="args">
+                        (parse-retry-after value)
+                    </pre>
+                    <p class="doc">
+                        <p>parses a <code>Retry-After</code> header value against the
+current time. See <code>parse-retry-after-at</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-retry-after-at">
+                        <h3 id="parse-retry-after-at">
+                            parse-retry-after-at
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref Datetime b)] (Maybe Int))
+                    </p>
+                    <pre class="args">
+                        (parse-retry-after-at value now)
+                    </pre>
+                    <p class="doc">
+                        <p>parses a <code>Retry-After</code> header value as of <code>now</code>,
+returning the number of seconds to wait.</p>
+<p>Both forms of RFC 9110 §10.2.3 are understood: a non-negative delta-seconds
+count, and an HTTP-date, whose wait is measured from <code>now</code> and floored at zero.
+Anything else yields <code>Nothing</code>.</p>
 
                     </p>
                 </div>
@@ -263,233 +414,278 @@ preserving any tool calls for conversation history.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a)] String)
+                        (Fn [(Ref RetryPolicy a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Message</code> to a string.</p>
+                        <p>converts a <code>RetryPolicy</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#role">
-                        <h3 id="role">
-                            role
+                    <a class="anchor" href="#retry-after-delay">
+                        <h3 id="retry-after-delay">
+                            retry-after-delay
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref RetryPolicy a), Int] Int)
+                    </p>
+                    <pre class="args">
+                        (retry-after-delay p secs)
+                    </pre>
+                    <p class="doc">
+                        <p>converts a <code>Retry-After</code> wait of <code>secs</code> seconds into a
+delay in milliseconds, clamped to <code>max-delay-ms</code> so that a server cannot park a
+caller for arbitrarily long.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#retryable-status?">
+                        <h3 id="retryable-status?">
+                            retryable-status?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref Int StaticLifetime)] Bool)
+                    </p>
+                    <pre class="args">
+                        (retryable-status? code)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether an HTTP status code deserves another
+attempt: 429 plus the 500, 502, 503 and 504 server errors. Every other status,
+the remaining 4xx included, is reported to the caller unretried.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#retryable?">
+                        <h3 id="retryable?">
+                            retryable?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref LLMError StaticLifetime)] Bool)
+                    </p>
+                    <pre class="args">
+                        (retryable? e)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether an <code>LLMError</code> deserves another attempt.
+Transport failures always do; API errors are judged by <code>retryable-status?</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-base-delay-ms">
+                        <h3 id="set-base-delay-ms">
+                            set-base-delay-ms
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a)] (Ref Role a))
+                        (Fn [RetryPolicy, Int] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>role</code> property of a <code>Message</code>.</p>
+                        <p>sets the <code>base-delay-ms</code> property of a <code>RetryPolicy</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-content">
-                        <h3 id="set-content">
-                            set-content
+                    <a class="anchor" href="#set-base-delay-ms!">
+                        <h3 id="set-base-delay-ms!">
+                            set-base-delay-ms!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message, String] Message)
+                        (Fn [(Ref RetryPolicy a), Int] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>content</code> property of a <code>Message</code>.</p>
+                        <p>sets the <code>base-delay-ms</code> property of a <code>RetryPolicy</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-content!">
-                        <h3 id="set-content!">
-                            set-content!
+                    <a class="anchor" href="#set-honour-retry-after">
+                        <h3 id="set-honour-retry-after">
+                            set-honour-retry-after
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a), String] ())
+                        (Fn [RetryPolicy, Bool] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>content</code> property of a <code>Message</code> in place.</p>
+                        <p>sets the <code>honour-retry-after</code> property of a <code>RetryPolicy</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-images">
-                        <h3 id="set-images">
-                            set-images
+                    <a class="anchor" href="#set-honour-retry-after!">
+                        <h3 id="set-honour-retry-after!">
+                            set-honour-retry-after!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message, (Array ImageContent)] Message)
+                        (Fn [(Ref RetryPolicy a), Bool] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>images</code> property of a <code>Message</code>.</p>
+                        <p>sets the <code>honour-retry-after</code> property of a <code>RetryPolicy</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-images!">
-                        <h3 id="set-images!">
-                            set-images!
+                    <a class="anchor" href="#set-jitter">
+                        <h3 id="set-jitter">
+                            set-jitter
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a), (Array ImageContent)] ())
+                        (Fn [RetryPolicy, Bool] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>images</code> property of a <code>Message</code> in place.</p>
+                        <p>sets the <code>jitter</code> property of a <code>RetryPolicy</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-role">
-                        <h3 id="set-role">
-                            set-role
+                    <a class="anchor" href="#set-jitter!">
+                        <h3 id="set-jitter!">
+                            set-jitter!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message, Role] Message)
+                        (Fn [(Ref RetryPolicy a), Bool] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>role</code> property of a <code>Message</code>.</p>
+                        <p>sets the <code>jitter</code> property of a <code>RetryPolicy</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-role!">
-                        <h3 id="set-role!">
-                            set-role!
+                    <a class="anchor" href="#set-max-attempts">
+                        <h3 id="set-max-attempts">
+                            set-max-attempts
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a), Role] ())
+                        (Fn [RetryPolicy, Int] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>role</code> property of a <code>Message</code> in place.</p>
+                        <p>sets the <code>max-attempts</code> property of a <code>RetryPolicy</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-tool-call-id">
-                        <h3 id="set-tool-call-id">
-                            set-tool-call-id
+                    <a class="anchor" href="#set-max-attempts!">
+                        <h3 id="set-max-attempts!">
+                            set-max-attempts!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message, String] Message)
+                        (Fn [(Ref RetryPolicy a), Int] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>tool-call-id</code> property of a <code>Message</code>.</p>
+                        <p>sets the <code>max-attempts</code> property of a <code>RetryPolicy</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-tool-call-id!">
-                        <h3 id="set-tool-call-id!">
-                            set-tool-call-id!
+                    <a class="anchor" href="#set-max-delay-ms">
+                        <h3 id="set-max-delay-ms">
+                            set-max-delay-ms
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a), String] ())
+                        (Fn [RetryPolicy, Int] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>tool-call-id</code> property of a <code>Message</code> in place.</p>
+                        <p>sets the <code>max-delay-ms</code> property of a <code>RetryPolicy</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-tool-calls">
-                        <h3 id="set-tool-calls">
-                            set-tool-calls
+                    <a class="anchor" href="#set-max-delay-ms!">
+                        <h3 id="set-max-delay-ms!">
+                            set-max-delay-ms!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message, (Array ToolCall)] Message)
+                        (Fn [(Ref RetryPolicy a), Int] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>tool-calls</code> property of a <code>Message</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-tool-calls!">
-                        <h3 id="set-tool-calls!">
-                            set-tool-calls!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Message a), (Array ToolCall)] ())
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>tool-calls</code> property of a <code>Message</code> in place.</p>
+                        <p>sets the <code>max-delay-ms</code> property of a <code>RetryPolicy</code> in place.</p>
 
                     </p>
                 </div>
@@ -503,257 +699,113 @@ preserving any tool calls for conversation history.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a)] String)
+                        (Fn [(Ref RetryPolicy a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Message</code> to a string.</p>
+                        <p>converts a <code>RetryPolicy</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#system">
-                        <h3 id="system">
-                            system
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref String a)] Message)
-                    </p>
-                    <pre class="args">
-                        (system s)
-                    </pre>
-                    <p class="doc">
-                        <p>creates a system message.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#to-json">
-                        <h3 id="to-json">
-                            to-json
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Message a)] JSON)
-                    </p>
-                    <pre class="args">
-                        (to-json m)
-                    </pre>
-                    <p class="doc">
-                        <p>converts a message to a JSON object with role and content keys.
-Includes tool_calls for assistant tool call messages, and tool_call_id for
-tool result messages. When images are present, content is serialized as an
-array of content parts (OpenAI format).</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#tool-call-id">
-                        <h3 id="tool-call-id">
-                            tool-call-id
+                    <a class="anchor" href="#update-base-delay-ms">
+                        <h3 id="update-base-delay-ms">
+                            update-base-delay-ms
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a)] (Ref String a))
+                        (Fn [RetryPolicy, (Ref (Fn [Int] Int a) b)] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>tool-call-id</code> property of a <code>Message</code>.</p>
+                        <p>updates the <code>base-delay-ms</code> property of a <code>RetryPolicy</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#tool-calls">
-                        <h3 id="tool-calls">
-                            tool-calls
+                    <a class="anchor" href="#update-honour-retry-after">
+                        <h3 id="update-honour-retry-after">
+                            update-honour-retry-after
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Message a)] (Ref (Array ToolCall) a))
+                        (Fn [RetryPolicy, (Ref (Fn [Bool] Bool a) b)] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>tool-calls</code> property of a <code>Message</code>.</p>
+                        <p>updates the <code>honour-retry-after</code> property of a <code>RetryPolicy</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#tool-result">
-                        <h3 id="tool-result">
-                            tool-result
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref String a), (Ref String b)] Message)
-                    </p>
-                    <pre class="args">
-                        (tool-result call-id content)
-                    </pre>
-                    <p class="doc">
-                        <p>creates a tool result message for the given tool call ID.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-content">
-                        <h3 id="update-content">
-                            update-content
+                    <a class="anchor" href="#update-jitter">
+                        <h3 id="update-jitter">
+                            update-jitter
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message, (Ref (Fn [String] String a) b)] Message)
+                        (Fn [RetryPolicy, (Ref (Fn [Bool] Bool a) b)] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>content</code> property of a <code>Message</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>jitter</code> property of a <code>RetryPolicy</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-images">
-                        <h3 id="update-images">
-                            update-images
+                    <a class="anchor" href="#update-max-attempts">
+                        <h3 id="update-max-attempts">
+                            update-max-attempts
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message, (Ref (Fn [(Array ImageContent)] (Array ImageContent) a) b)] Message)
+                        (Fn [RetryPolicy, (Ref (Fn [Int] Int a) b)] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>images</code> property of a <code>Message</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>max-attempts</code> property of a <code>RetryPolicy</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-role">
-                        <h3 id="update-role">
-                            update-role
+                    <a class="anchor" href="#update-max-delay-ms">
+                        <h3 id="update-max-delay-ms">
+                            update-max-delay-ms
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Message, (Ref (Fn [Role] Role a) b)] Message)
+                        (Fn [RetryPolicy, (Ref (Fn [Int] Int a) b)] RetryPolicy)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>role</code> property of a <code>Message</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-tool-call-id">
-                        <h3 id="update-tool-call-id">
-                            update-tool-call-id
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [Message, (Ref (Fn [String] String a) b)] Message)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>updates the <code>tool-call-id</code> property of a <code>Message</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-tool-calls">
-                        <h3 id="update-tool-calls">
-                            update-tool-calls
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [Message, (Ref (Fn [(Array ToolCall)] (Array ToolCall) a) b)] Message)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>updates the <code>tool-calls</code> property of a <code>Message</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#user">
-                        <h3 id="user">
-                            user
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref String a)] Message)
-                    </p>
-                    <pre class="args">
-                        (user s)
-                    </pre>
-                    <p class="doc">
-                        <p>creates a user message.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#user-with-image">
-                        <h3 id="user-with-image">
-                            user-with-image
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref String a), (Array ImageContent)] Message)
-                    </p>
-                    <pre class="args">
-                        (user-with-image s images)
-                    </pre>
-                    <p class="doc">
-                        <p>creates a user message with text and images.
-Each image is an <code>ImageContent</code> with a MIME type and base64-encoded data.</p>
+                        <p>updates the <code>max-delay-ms</code> property of a <code>RetryPolicy</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

@@ -58,6 +58,11 @@
                             </a>
                         </li>
                         <li>
+                            <a href="RetryPolicy.html">
+                                RetryPolicy
+                            </a>
+                        </li>
+                        <li>
                             <a href="ToolDef.html">
                                 ToolDef
                             </a>
@@ -146,6 +151,8 @@ and Gemini.</p>
 Returns <code>(Result LLMResponse LLMError)</code>. On HTTP errors (4xx/5xx), returns a
 structured <code>LLMError.Api</code> with status code, error type, and message parsed from
 the provider's error response. On transport failures, returns <code>LLMError.Transport</code>.</p>
+<p>Makes exactly one attempt. Use <code>chat-with-retry</code> to retry rate limits and
+server errors.</p>
 
                     </p>
                 </div>
@@ -173,6 +180,8 @@ or <code>max-iters</code> iterations are reached.</p>
 <code>String</code>.</p>
 <p>Returns the final <code>(Result LLMResponse LLMError)</code>. If the iteration limit is
 reached, the last response is returned (it may still contain tool calls).</p>
+<p>Each request makes exactly one attempt. Use <code>chat-loop-with-retry</code> to retry
+rate limits and server errors.</p>
 <pre><code>(let [config (LLM.ollama &quot;http://localhost:11434&quot;)
       tools [(ToolDef.init @&quot;get_weather&quot; @&quot;Get weather&quot; schema)]
       msgs [(Message.user &quot;Weather in Paris?&quot;)]
@@ -184,6 +193,28 @@ reached, the last response is returned (it may still contain tool calls).</p>
     (Result.Success r) (println* (LLMResponse.content &amp;r))
     (Result.Error e) (IO.errorln &amp;(LLMError.str &amp;e))))
 </code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat-loop-with-retry">
+                        <h3 id="chat-loop-with-retry">
+                            chat-loop-with-retry
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), (Ref String b), (Array Message), Int, Double, (Ref (Array ToolDef) c), (Fn [(Ref ToolCall d)] String e), Int, (Ref RetryPolicy f)] (Result LLMResponse LLMError))
+                    </p>
+                    <pre class="args">
+                        (chat-loop-with-retry config model messages max-tokens temperature tools handler max-iters policy)
+                    </pre>
+                    <p class="doc">
+                        <p>runs an agentic tool-use loop in which every
+request retries according to <code>policy</code>. The policy applies per request, not to
+the loop as a whole. See <code>chat-loop</code> for the arguments and the return value.</p>
 
                     </p>
                 </div>
@@ -290,6 +321,54 @@ schema. The schema is a JSON value (use the <code>JSON</code> constructors).</p>
                         <p>sends a streaming chat request and returns an <code>LlmStream</code>.
 Poll the stream for tokens. Returns <code>(Result LlmStream LLMError)</code>. Checks
 the HTTP status code before returning the stream.</p>
+<p>Makes exactly one attempt. Use <code>chat-stream-with-retry</code> to retry rate limits
+and server errors.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat-stream-with-retry">
+                        <h3 id="chat-stream-with-retry">
+                            chat-stream-with-retry
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), (Ref LLMRequest b), (Ref RetryPolicy c)] (Result LlmStream LLMError))
+                    </p>
+                    <pre class="args">
+                        (chat-stream-with-retry config req policy)
+                    </pre>
+                    <p class="doc">
+                        <p>sends a streaming chat request, retrying failures
+according to <code>policy</code>. Only the initial response counts: once a stream is
+handed back, a failure mid-stream is the caller's to handle. See <code>chat-stream</code>
+for the return value.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chat-with-retry">
+                        <h3 id="chat-with-retry">
+                            chat-with-retry
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), (Ref LLMRequest b), (Ref RetryPolicy c)] (Result LLMResponse LLMError))
+                    </p>
+                    <pre class="args">
+                        (chat-with-retry config req policy)
+                    </pre>
+                    <p class="doc">
+                        <p>sends a chat request, retrying failures according to
+<code>policy</code>. See <code>chat</code> for the return value and <code>RetryPolicy</code> for the knobs.</p>
+<pre><code>(LLM.chat-with-retry &amp;config &amp;req &amp;(RetryPolicy.default))
+</code></pre>
 
                     </p>
                 </div>
@@ -313,6 +392,8 @@ the HTTP status code before returning the stream.</p>
 Returns <code>(Result EmbeddingResponse LLMError)</code>.</p>
 <p>Anthropic does not offer an embeddings API; calling this with an Anthropic
 config returns a <code>Transport</code> error.</p>
+<p>Makes exactly one attempt. Use <code>embed-with-retry</code> to retry rate limits and
+server errors.</p>
 <pre><code>(let [config (LLM.openai &quot;sk-...&quot;)
       req (LLM.embedding-request &quot;text-embedding-3-small&quot;
             [@&quot;hello&quot; @&quot;world&quot;])]
@@ -321,6 +402,27 @@ config returns a <code>Transport</code> error.</p>
       (println* (Array.length (EmbeddingResponse.embeddings &amp;r)))
     (Result.Error e) (IO.errorln &amp;(LLMError.str &amp;e))))
 </code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#embed-with-retry">
+                        <h3 id="embed-with-retry">
+                            embed-with-retry
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ProviderConfig a), (Ref EmbeddingRequest b), (Ref RetryPolicy c)] (Result EmbeddingResponse LLMError))
+                    </p>
+                    <pre class="args">
+                        (embed-with-retry config req policy)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an embedding request, retrying failures
+according to <code>policy</code>. See <code>embed</code> for the return value.</p>
 
                     </p>
                 </div>
