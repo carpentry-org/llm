@@ -102,7 +102,8 @@
                 <div class="module-description">
                     <p>controls automatic retries for the <code>-with-retry</code> entry points.</p>
 <ul>
-<li><code>max-attempts</code>: total tries including the first, so <code>1</code> never retries</li>
+<li><code>max-attempts</code>: total tries including the first, so <code>1</code> never retries.
+One attempt is always made, so anything below <code>1</code> behaves as <code>1</code></li>
 <li><code>base-delay-ms</code>: how long to wait after the first failure</li>
 <li><code>max-delay-ms</code>: an upper bound on every delay, <code>Retry-After</code> included</li>
 <li><code>honour-retry-after</code>: whether a <code>Retry-After</code> response header replaces the
@@ -401,6 +402,9 @@ returning the number of seconds to wait.</p>
 <p>Both forms of RFC 9110 §10.2.3 are understood: a non-negative delta-seconds
 count, and an HTTP-date, whose wait is measured from <code>now</code> and floored at zero.
 Anything else yields <code>Nothing</code>.</p>
+<p>Leading zeros are part of delta-seconds and are read as written. A count with
+more than nine significant digits, and a date further ahead than a timestamp
+can represent, both saturate at <code>Int.MAX</code> rather than reading as a short wait.</p>
 
                     </p>
                 </div>

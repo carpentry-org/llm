@@ -39,6 +39,34 @@
                                                  @""))]
       (LlmStream.init rs linebuf @provider @"" @"" @"" [] false))))
 
+(defn drained-body [payload]
+  (let-do [listener (match (TcpListener.bind &@"127.0.0.1" 0)
+             (Result.Success l) l)
+           port (TcpListener.local-port &listener)
+           client (match (TcpStream.connect &@"127.0.0.1" port)
+             (Result.Success c) c)
+           server (match (TcpListener.accept &listener) (Result.Success s) s)]
+    (ignore (TcpStream.send &server payload))
+    (TcpStream.close server)
+    (TcpListener.close listener)
+    (let-do [rs (ResponseStream.init (Connection.Plain client)
+                                     @""
+                                     @""
+                                     false
+                                     false
+                                     200
+                                     (Response.init 200
+                                                    @"OK"
+                                                    @"1.1"
+                                                    (the (Array Cookie) [])
+                                                    (the (Map String
+                                                              (Array String))
+                                                         {})
+                                                    @""))
+             body (llm-drain-stream &rs)]
+      (ResponseStream.close rs)
+      body)))
+
 (defn render-token [t]
   (if (String.starts-with? t &(soh-prefix))
     (String.concat &[@"thought:" (String.byte-slice t 1 (String.length t))])
@@ -2840,4 +2868,81 @@ data: {\"type\":\"message_stop\"}
       (and
         (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
         (match r (Result.Error (LLMError.Transport _)) true _ false)))
-    "chat-loop-with-retry sleeps between attempts before giving up"))
+    "chat-loop-with-retry sleeps between attempts before giving up")
+
+  (assert-equal test
+    1000
+    (RetryPolicy.retry-after-delay &(RetryPolicy.init 3 500 1500 true false) 1)
+    "retry-after-delay does not round a wait up to a cap that is not whole seconds")
+
+  (assert-equal test
+    0
+    (RetryPolicy.retry-after-delay &(RetryPolicy.init 3 500 900 true false) 0)
+    "retry-after-delay of zero seconds is no wait, whatever the cap")
+
+  (assert-equal test
+    30000
+    (RetryPolicy.retry-after-delay &(RetryPolicy.default) 30)
+    "retry-after-delay of exactly the cap in seconds is the cap")
+
+  (assert-equal test
+    2147483000
+    (RetryPolicy.retry-after-delay
+      &(RetryPolicy.init 3 500 Int.MAX true false)
+      2147483)
+    "retry-after-delay converts the largest representable wait without overflowing")
+
+  (assert-equal test
+    12
+    (Maybe.from (RetryPolicy.parse-retry-after-at "0000000012" &(epoch)) -1)
+    "parse-retry-after reads a zero-padded delta-seconds as its value")
+
+  (assert-equal test
+    0
+    (Maybe.from (RetryPolicy.parse-retry-after-at "0000000000" &(epoch)) -1)
+    "parse-retry-after reads an all-zero delta-seconds as no wait")
+
+  (assert-equal test
+    Int.MAX
+    (Maybe.from (RetryPolicy.parse-retry-after-at "9999999999" &(epoch)) -1)
+    "parse-retry-after saturates a delta-seconds too large to represent")
+
+  (assert-equal test
+    Int.MAX
+    (Maybe.from
+      (RetryPolicy.parse-retry-after-at "Fri, 01 Jan 2100 00:00:00 GMT"
+                                        &(Datetime.now))
+      -1)
+    "parse-retry-after saturates a date too far ahead for a timestamp")
+
+  (assert-equal test
+    30000
+    (llm-retry-delay &(RetryPolicy.default)
+                     &(Maybe.Just @"Fri, 01 Jan 2100 00:00:00 GMT")
+                     1)
+    "a far-future Retry-After date waits the cap instead of retrying at once")
+
+  (assert-true test
+    (let-do [t0 (System.nanotime)]
+      (llm-sleep-ms 120)
+      (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l)))
+    "llm-sleep-ms sleeps for the delay it is given")
+
+  (assert-true test
+    (let-do [url (closed-url)
+             t0 (System.nanotime)
+             r (LLM.chat-with-retry &(LLM.vllm &url "")
+                                    &(LLM.chat-request "m"
+                                                       [(Message.user "hi")]
+                                                       8
+                                                       0.0)
+                                    &(RetryPolicy.init 0 60 200 false false))]
+      (and
+        (Uint64.< (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
+        (match r (Result.Error (LLMError.Transport _)) true _ false)))
+    "a policy with max-attempts below 1 makes one attempt and never sleeps")
+
+  (assert-equal test
+    &(String.repeat 2000 "0123456789")
+    &(drained-body &(String.repeat 2000 "0123456789"))
+    "llm-drain-stream returns every chunk of a body that spans several reads"))
