@@ -402,9 +402,9 @@ returning the number of seconds to wait.</p>
 <p>Both forms of RFC 9110 §10.2.3 are understood: a non-negative delta-seconds
 count, and an HTTP-date, whose wait is measured from <code>now</code> and floored at zero.
 Anything else yields <code>Nothing</code>.</p>
-<p>Leading zeros are part of delta-seconds and are read as written. A count with
-more than nine significant digits, and a date further ahead than a timestamp
-can represent, both saturate at <code>Int.MAX</code> rather than reading as a short wait.</p>
+<p>Leading zeros are part of delta-seconds and are read as written. A count larger
+than <code>Int.MAX</code>, and a date more than <code>Int.MAX</code> seconds ahead, both saturate at
+<code>Int.MAX</code> rather than reading as a short wait.</p>
 
                     </p>
                 </div>

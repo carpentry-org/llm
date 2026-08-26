@@ -231,7 +231,7 @@ double per attempt, clamped to `max-delay-ms`.")
              d (max 0 @(base-delay-ms p))
              i 1]
       (while-do (< i attempt)
-        (if (>= d (/ cap 2)) (do (set! d cap) (break)) (set! d (* d 2)))
+        (if (> d (/ cap 2)) (do (set! d cap) (break)) (set! d (* d 2)))
         (set! i (Int.inc i)))
       (min d cap)))
 
@@ -249,24 +249,38 @@ caller for arbitrarily long.")
     (let [cap (max 0 @(max-delay-ms p))]
       (if (> secs (/ cap 1000)) cap (min (* (max 0 secs) 1000) cap))))
 
-  (private significant-digits)
-  (hidden significant-digits)
-  (defn significant-digits [s]
-    (let-do [n (String.length s)
-             i 0]
-      (while-do (and (< i (Int.dec n)) (= \0 (String.char-at s i)))
-        (set! i (Int.inc i)))
-      (String.byte-slice s i n)))
+  (private delta-seconds)
+  (hidden delta-seconds)
+  (defn delta-seconds [digits]
+    (match (Long.from-string digits)
+      (Maybe.Just l)
+        (Maybe.Just (if (> l (Long.from-int Int.MAX)) Int.MAX (Long.to-int l)))
+      (Maybe.Nothing) (Maybe.Nothing)))
+
+  (private secs-of-day)
+  (hidden secs-of-day)
+  (defn secs-of-day [d]
+    (+
+      (* 3600 (Maybe.from @(Datetime.hours d) 0))
+      (+
+        (* 60 (Maybe.from @(Datetime.minutes d) 0))
+        (Maybe.from @(Datetime.seconds d) 0))))
+
+  (private MAX-WAIT-DAYS)
+  (hidden MAX-WAIT-DAYS)
+  ; the longest whole-day wait whose seconds still fit in an Int
+  (def MAX-WAIT-DAYS 24854)
 
   (private seconds-until)
   (hidden seconds-until)
   (defn seconds-until [d now]
-    (let [delta (- (Datetime.to-unix-timestamp d)
-                   (Datetime.to-unix-timestamp now))]
-      (if (and (<= delta 0)
-               (> (Datetime.to-ordinal d) (Datetime.to-ordinal now)))
-        Int.MAX
-        (max 0 delta))))
+    (let [ud (Datetime.to-utc d)
+          un (Datetime.to-utc now)
+          days (- (Datetime.to-ordinal &ud) (Datetime.to-ordinal &un))]
+      (cond
+        (< days 0) 0
+        (> days MAX-WAIT-DAYS) Int.MAX
+        (max 0 (+ (* days 86400) (- (secs-of-day &ud) (secs-of-day &un)))))))
 
   (doc parse-retry-after-at "parses a `Retry-After` header value as of `now`,
 returning the number of seconds to wait.
@@ -275,16 +289,13 @@ Both forms of RFC 9110 §10.2.3 are understood: a non-negative delta-seconds
 count, and an HTTP-date, whose wait is measured from `now` and floored at zero.
 Anything else yields `Nothing`.
 
-Leading zeros are part of delta-seconds and are read as written. A count with
-more than nine significant digits, and a date further ahead than a timestamp
-can represent, both saturate at `Int.MAX` rather than reading as a short wait.")
+Leading zeros are part of delta-seconds and are read as written. A count larger
+than `Int.MAX`, and a date more than `Int.MAX` seconds ahead, both saturate at
+`Int.MAX` rather than reading as a short wait.")
   (defn parse-retry-after-at [value now]
     (let [v &(String.trim value)]
       (if (Pattern.matches? #"^\d+$" v)
-        (let [digits (significant-digits v)]
-          (if (> (String.length &digits) 9)
-            (Maybe.Just Int.MAX)
-            (Int.from-string &digits)))
+        (delta-seconds v)
         (match (HttpDate.parse v)
           (Result.Success d) (Maybe.Just (seconds-until &d now))
           (Result.Error _) (Maybe.Nothing)))))
@@ -1487,7 +1498,7 @@ array of content parts (OpenAI format).")
 (defn llm-sleep-ms [ms]
   (let-do [left ms]
     (while-do (> left 0)
-      (let-do [chunk (min left 2000000)]
+      (let-do [chunk (min left 999)]
         (System.sleep-micros (* chunk 1000))
         (set! left (- left chunk))))))
 
@@ -1505,6 +1516,22 @@ array of content parts (OpenAI format).")
 
 (defn llm-retries-left? [policy attempt]
   (< attempt @(RetryPolicy.max-attempts policy)))
+
+(def llm-permanent-errors
+  [@"Invalid URI"
+   @"missing host in URL"
+   @"redirect without Location header"
+   @"redirect with empty Location header"
+   @"too many redirects"])
+
+(defn llm-permanent-transport-error? [e]
+  (let-do [found false
+           i 0]
+    (while-do (and (not found) (< i (Array.length &llm-permanent-errors)))
+      (when (llm-byte-starts-with? e (Array.unsafe-nth &llm-permanent-errors i))
+        (set! found true))
+      (set! i (Int.inc i)))
+    found))
 
 (defn llm-drain-stream [rs]
   (let-do [sb (StringBuf.create)
@@ -1540,8 +1567,10 @@ array of content parts (OpenAI format).")
           (llm-sleep-ms delay)
           (Maybe.Nothing))
         (Maybe.Just (llm-stream-outcome provider rs)))
-    (Result.Error _)
-      (do (llm-sleep-ms (llm-backoff-delay policy attempt)) (Maybe.Nothing))))
+    (Result.Error e)
+      (if (llm-permanent-transport-error? &e)
+        (Maybe.Just (llm-transport-error e))
+        (do (llm-sleep-ms (llm-backoff-delay policy attempt)) (Maybe.Nothing)))))
 
 (defn llm-stream-with-retry [policy provider url hdrs body]
   (let-do [attempt 1
@@ -1556,10 +1585,9 @@ array of content parts (OpenAI format).")
 (defn llm-send-with-retry [policy provider url hdrs body]
   (match (llm-stream-with-retry policy provider url hdrs body)
     (Result.Success rs)
-      (let-do [decoded (llm-drain-stream &rs)
-               resp @(ResponseStream.parsed-response &rs)]
+      (let-do [decoded (llm-drain-stream &rs)]
         (ResponseStream.close rs)
-        (Result.Success (Response.set-body resp decoded)))
+        (Result.Success decoded))
     (Result.Error e) (Result.Error e)))
 
 (doc LLM "is a multi-provider LLM client supporting Anthropic, OpenAI, Ollama,
@@ -1683,8 +1711,8 @@ schema. The schema is a JSON value (use the `JSON` constructors).")
               url (String.concat &[@base path])
               hdrs (llm-build-headers name config (String.length &body))]
           (match (llm-send-with-retry policy name &url hdrs &body)
-            (Result.Success resp)
-              (match (llm-parse-success name (Response.body &resp))
+            (Result.Success resp-body)
+              (match (llm-parse-success name &resp-body)
                 (Result.Success r) (Result.Success r)
                 (Result.Error e) (llm-transport-error e))
             (Result.Error e) (Result.Error e))))))
@@ -2187,8 +2215,8 @@ according to `policy`. See `embed` for the return value.")
               url (String.concat &[@base path])
               hdrs (llm-build-headers name config (String.length &body))]
           (match (llm-send-with-retry policy name &url hdrs &body)
-            (Result.Success resp)
-              (match (llm-parse-embedding-success name (Response.body &resp))
+            (Result.Success resp-body)
+              (match (llm-parse-embedding-success name &resp-body)
                 (Result.Success r) (Result.Success r)
                 (Result.Error e) (llm-transport-error e))
             (Result.Error e) (Result.Error e))))))

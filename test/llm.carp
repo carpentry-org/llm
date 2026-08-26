@@ -7,39 +7,22 @@
 
 (defn epoch [] (Datetime.from-unix-timestamp 0))
 
-(defn closed-url []
-  (let-do [l (match (TcpListener.bind &@"127.0.0.1" 0) (Result.Success l) l)
-           port (TcpListener.local-port &l)]
-    (TcpListener.close l)
-    (fmt "http://127.0.0.1:%d" port)))
+(defn west-of-utc-now []
+  (Datetime.init 2026
+                 8
+                 26
+                 (Maybe.Just 22)
+                 (Maybe.Just 0)
+                 (Maybe.Just 0)
+                 (Maybe.Nothing)
+                 (Maybe.Just (Timezone.init @"EST" -18000l false))))
+
+; port 0 is never assignable, so connecting to it is refused immediately
+(defn closed-url [] @"http://127.0.0.1:0")
 
 (defn crlf [] (String.from-chars &[\return \newline]))
 
-(defn make-test-llm-stream [provider linebuf]
-  (let-do [listener (match (TcpListener.bind &@"127.0.0.1" 0)
-             (Result.Success l) l)
-           port (TcpListener.local-port &listener)
-           client (match (TcpStream.connect &@"127.0.0.1" port)
-             (Result.Success c) c)
-           server (match (TcpListener.accept &listener) (Result.Success s) s)]
-    (TcpStream.close server)
-    (TcpListener.close listener)
-    (let [rs (ResponseStream.init (Connection.Plain client)
-                                  @""
-                                  @""
-                                  false
-                                  true
-                                  200
-                                  (Response.init 200
-                                                 @"OK"
-                                                 @"1.1"
-                                                 (the (Array Cookie) [])
-                                                 (the (Map String (Array String))
-                                                      {})
-                                                 @""))]
-      (LlmStream.init rs linebuf @provider @"" @"" @"" [] false))))
-
-(defn drained-body [payload]
+(defn make-test-response-stream [payload done]
   (let-do [listener (match (TcpListener.bind &@"127.0.0.1" 0)
              (Result.Success l) l)
            port (TcpListener.local-port &listener)
@@ -49,23 +32,34 @@
     (ignore (TcpStream.send &server payload))
     (TcpStream.close server)
     (TcpListener.close listener)
-    (let-do [rs (ResponseStream.init (Connection.Plain client)
-                                     @""
-                                     @""
-                                     false
-                                     false
-                                     200
-                                     (Response.init 200
-                                                    @"OK"
-                                                    @"1.1"
-                                                    (the (Array Cookie) [])
-                                                    (the (Map String
-                                                              (Array String))
-                                                         {})
-                                                    @""))
-             body (llm-drain-stream &rs)]
-      (ResponseStream.close rs)
-      body)))
+    (ResponseStream.init (Connection.Plain client)
+                         @""
+                         @""
+                         false
+                         done
+                         200
+                         (Response.init 200
+                                        @"OK"
+                                        @"1.1"
+                                        (the (Array Cookie) [])
+                                        (the (Map String (Array String)) {})
+                                        @""))))
+
+(defn make-test-llm-stream [provider linebuf]
+  (LlmStream.init (make-test-response-stream "" true)
+                  linebuf
+                  @provider
+                  @""
+                  @""
+                  @""
+                  []
+                  false))
+
+(defn drained-body [payload]
+  (let-do [rs (make-test-response-stream payload false)
+           body (llm-drain-stream &rs)]
+    (ResponseStream.close rs)
+    body))
 
 (defn render-token [t]
   (if (String.starts-with? t &(soh-prefix))
@@ -2945,4 +2939,113 @@ data: {\"type\":\"message_stop\"}
   (assert-equal test
     &(String.repeat 2000 "0123456789")
     &(drained-body &(String.repeat 2000 "0123456789"))
-    "llm-drain-stream returns every chunk of a body that spans several reads"))
+    "llm-drain-stream returns every chunk of a body that spans several reads")
+
+  (assert-equal test
+    0
+    (Maybe.from
+      (RetryPolicy.parse-retry-after-at "Wed, 27 Aug 2026 01:00:00 GMT"
+                                        &(west-of-utc-now))
+      -1)
+    "a Retry-After date in the past is no wait for a client west of UTC")
+
+  (assert-equal test
+    3600
+    (Maybe.from
+      (RetryPolicy.parse-retry-after-at "Wed, 27 Aug 2026 04:00:00 GMT"
+                                        &(west-of-utc-now))
+      -1)
+    "a Retry-After date ahead is its own wait for a client west of UTC")
+
+  (assert-equal test
+    Int.MAX
+    (Maybe.from
+      (RetryPolicy.parse-retry-after-at "Thu, 26 Aug 2163 00:00:00 GMT"
+                                        &(Datetime.now))
+      -1)
+    "parse-retry-after saturates a date beyond the range a wait can express")
+
+  (assert-equal test
+    Int.MAX
+    (Maybe.from
+      (RetryPolicy.parse-retry-after-at "Sat, 01 Jan 9999 00:00:00 GMT"
+                                        &(Datetime.now))
+      -1)
+    "parse-retry-after saturates the furthest date an HTTP-date can name")
+
+  (assert-equal test
+    2000000000
+    (Maybe.from (RetryPolicy.parse-retry-after-at "2000000000" &(epoch)) -1)
+    "parse-retry-after reads a ten-digit delta-seconds it can represent")
+
+  (assert-equal test
+    Int.MAX
+    (Maybe.from (RetryPolicy.parse-retry-after-at "2147483648" &(epoch)) -1)
+    "parse-retry-after saturates a delta-seconds one past the largest Int")
+
+  (assert-equal test
+    6
+    (RetryPolicy.delay-for &(RetryPolicy.init 5 3 7 false false) 2)
+    "delay-for doubles into an odd cap instead of clamping a step early")
+
+  (assert-equal test
+    7
+    (RetryPolicy.delay-for &(RetryPolicy.init 5 3 7 false false) 3)
+    "delay-for reaches an odd cap on the doubling that would overshoot it")
+
+  (assert-true test
+    (llm-permanent-transport-error? "missing host in URL")
+    "a URL without a host is a permanent transport error")
+
+  (assert-true test
+    (llm-permanent-transport-error? "Invalid URI: bad port at character 16")
+    "an unparseable URL is a permanent transport error")
+
+  (assert-true test
+    (llm-permanent-transport-error? "redirect without Location header")
+    "a redirect without a Location header is a permanent transport error")
+
+  (assert-true test
+    (llm-permanent-transport-error? "redirect with empty Location header")
+    "a redirect with an empty Location header is a permanent transport error")
+
+  (assert-true test
+    (llm-permanent-transport-error? "too many redirects (max 5)")
+    "an exhausted redirect budget is a permanent transport error")
+
+  (assert-false test
+    (llm-permanent-transport-error? "Connection refused")
+    "a refused connection is not a permanent transport error")
+
+  (assert-false test
+    (llm-permanent-transport-error? "")
+    "an empty transport error is not a permanent one")
+
+  (assert-true test
+    (let-do [t0 (System.nanotime)
+             r (LLM.chat-with-retry &(LLM.ollama "notaurl")
+                                    &(LLM.chat-request "m"
+                                                       [(Message.user "hi")]
+                                                       8
+                                                       0.0)
+                                    &(RetryPolicy.init 5 200 200 false false))]
+      (and
+        (Uint64.< (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
+        (match r (Result.Error (LLMError.Transport _)) true _ false)))
+    "a base URL without a host fails on the first attempt without sleeping")
+
+  (assert-true test
+    (let-do [t0 (System.nanotime)
+             r (LLM.embed-with-retry &(LLM.vllm "http://127.0.0.1:nope" "")
+                                     &(LLM.embedding-request "m" [@"hi"])
+                                     &(RetryPolicy.init 5 200 200 false false))]
+      (and
+        (Uint64.< (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
+        (match r (Result.Error (LLMError.Transport _)) true _ false)))
+    "an unparseable base URL fails on the first attempt without sleeping")
+
+  (assert-true test
+    (let-do [t0 (System.nanotime)]
+      (llm-sleep-ms 1050)
+      (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 1000000000l)))
+    "llm-sleep-ms sleeps a delay that spans several chunks"))

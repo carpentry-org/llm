@@ -179,9 +179,12 @@ failures:
 30s cap. Every other 4xx comes straight back to you, since retrying a bad
 request only wastes quota.
 
-A transport failure means a connection that was refused, reset or closed.
-Requests carry no read timeout, so an endpoint that accepts the connection and
-then stalls blocks the attempt instead of failing it, and no retry follows.
+A transport failure means a connection that was refused, reset or closed. A
+failure that another attempt cannot change — a malformed base URL, a URL without
+a host, or a redirect chain that could not be followed — comes straight back to
+you on the first attempt. Requests carry no read timeout, so an endpoint that
+accepts the connection and then stalls blocks the attempt instead of failing it,
+and no retry follows.
 
 A `Retry-After` response header, in either the delta-seconds or the HTTP-date
 form, replaces the computed delay — still clamped to `max-delay-ms`, so a
