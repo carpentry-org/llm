@@ -22,6 +22,12 @@
 
 (defn crlf [] (String.from-chars &[\return \newline]))
 
+(defn headerless-response []
+  (Response.init 503 @"Service Unavailable" @"HTTP/1.1" [] {} @""))
+
+(defn retry-after-response [v]
+  (Response.set-headers (headerless-response) {@"Retry-After" [@v]}))
+
 (defn make-test-response-stream [payload done]
   (let-do [listener (match (TcpListener.bind &@"127.0.0.1" 0)
              (Result.Success l) l)
@@ -2707,33 +2713,60 @@ data: {\"type\":\"message_stop\"}
     (Array.all?
       &(fn [ms]
         (>=
-          (RetryPolicy.jittered &(RetryPolicy.init 3 500 Int.MAX false true) @ms)
+          (RetryPolicy.jittered
+            &(RetryPolicy.init 3 500 Int.MAX false true [])
+            @ms)
           0))
       &[1000 1073741823 2147483646 2147483647])
     "jittered never draws a negative delay, up to an Int.MAX cap")
 
   (assert-true test
     (Array.all?
-      &(fn [c] (RetryPolicy.retryable-status? c))
-      &[429 500 502 503 504])
-    "retryable-status? accepts 429 and the retryable 5xx")
+      &(fn [c] (RetryPolicy.retryable-status? &(RetryPolicy.default) c))
+      &[429 500 502 503 504 529])
+    "the default policy retries 429, the retryable 5xx and Anthropic's 529")
 
   (assert-false test
     (Array.any?
-      &(fn [c] (RetryPolicy.retryable-status? c))
+      &(fn [c] (RetryPolicy.retryable-status? &(RetryPolicy.default) c))
       &[200 400 401 403 404 408 409 422 501])
-    "retryable-status? rejects every other status")
+    "the default policy rejects every other status")
 
   (assert-true test
-    (RetryPolicy.retryable? &(LLMError.Transport @"connection reset"))
-    "retryable? accepts transport failures")
-
-  (assert-true test
-    (RetryPolicy.retryable? &(LLMError.Api 429 @"rate_limit" @"slow down"))
-    "retryable? accepts a 429 API error")
+    (RetryPolicy.retryable-status?
+      &(RetryPolicy.set-retryable-statuses (RetryPolicy.default) [409])
+      &409)
+    "a policy can name a status the default does not retry")
 
   (assert-false test
-    (RetryPolicy.retryable? &(LLMError.Api 400 @"invalid_request" @"bad model"))
+    (RetryPolicy.retryable-status?
+      &(RetryPolicy.set-retryable-statuses (RetryPolicy.default) [409])
+      &429)
+    "naming a status set replaces the default one rather than adding to it")
+
+  (assert-true test
+    (RetryPolicy.retryable? &(RetryPolicy.default)
+                            &(LLMError.Transport @"connection reset"))
+    "retryable? accepts transport failures")
+
+  (assert-false test
+    (RetryPolicy.retryable? &(RetryPolicy.default)
+                            &(LLMError.Transport @"missing host in URL"))
+    "retryable? agrees with the engine on a permanent transport failure")
+
+  (assert-true test
+    (RetryPolicy.retryable? &(RetryPolicy.default)
+                            &(LLMError.Api 429 @"rate_limit" @"slow down"))
+    "retryable? accepts a 429 API error")
+
+  (assert-true test
+    (RetryPolicy.retryable? &(RetryPolicy.default)
+                            &(LLMError.Api 529 @"overloaded_error" @"overloaded"))
+    "retryable? accepts a 529 API error")
+
+  (assert-false test
+    (RetryPolicy.retryable? &(RetryPolicy.default)
+                            &(LLMError.Api 400 @"invalid_request" @"bad model"))
     "retryable? rejects a 400 API error")
 
   (assert-equal test
@@ -2779,27 +2812,25 @@ data: {\"type\":\"message_stop\"}
 
   (assert-equal test
     3000
-    (llm-retry-delay &(RetryPolicy.default) &(Maybe.Just @"3") 1)
+    (llm-retry-delay &(RetryPolicy.default) &(retry-after-response "3") 1)
     "a Retry-After header replaces the computed delay")
 
   (assert-equal test
     500
-    (llm-retry-delay &(RetryPolicy.default) &(Maybe.Just @"soon") 1)
+    (llm-retry-delay &(RetryPolicy.default) &(retry-after-response "soon") 1)
     "an unparseable Retry-After falls back to the computed delay")
 
   (assert-equal test
     1000
     (llm-retry-delay
-      &(RetryPolicy.init 3 500 30000 false false)
-      &(Maybe.Just @"3")
+      &(RetryPolicy.init 3 500 30000 false false [])
+      &(retry-after-response "3")
       2)
     "a policy that does not honour Retry-After ignores the header")
 
   (assert-equal test
     2000
-    (llm-retry-delay &(RetryPolicy.default)
-                     &(the (Maybe String) (Maybe.Nothing))
-                     3)
+    (llm-retry-delay &(RetryPolicy.default) &(headerless-response) 3)
     "a missing Retry-After leaves the computed delay alone")
 
   (assert-true test
@@ -2808,7 +2839,7 @@ data: {\"type\":\"message_stop\"}
                                                    [(Message.user "hi")]
                                                    8
                                                    0.0)
-                                &(RetryPolicy.init 3 1 1 false false))
+                                &(RetryPolicy.init 3 1 1 false false []))
       (Result.Error (LLMError.Transport _)) true
       _ false)
     "chat-with-retry gives up and reports the transport error")
@@ -2819,59 +2850,55 @@ data: {\"type\":\"message_stop\"}
       (ignore
         (LLM.chat-with-retry &(LLM.vllm &url "")
                              &(LLM.chat-request "m" [(Message.user "hi")] 8 0.0)
-                             &(RetryPolicy.init 3 60 200 false false)))
+                             &(RetryPolicy.init 3 60 200 false false [])))
       (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l)))
     "chat-with-retry sleeps the computed delay between attempts")
 
   (assert-true test
-    (let-do [url (closed-url)
-             req (LLM.chat-request "m" [(Message.user "hi")] 8 0.0)
-             policy (RetryPolicy.init 3 60 200 false false)
-             t0 (System.nanotime)
-             r (LLM.chat-stream-with-retry &(LLM.vllm &url "") &req &policy)]
-      (and
-        (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
-        (match r (Result.Error (LLMError.Transport _)) true _ false)))
-    "chat-stream-with-retry sleeps between attempts before giving up")
+    (let [url (closed-url)
+          req (LLM.chat-request "m" [(Message.user "hi")] 8 0.0)
+          policy (RetryPolicy.init 3 1 1 false false [])]
+      (match (LLM.chat-stream-with-retry &(LLM.vllm &url "") &req &policy)
+        (Result.Error (LLMError.Transport _)) true
+        _ false))
+    "chat-stream-with-retry reports the transport error after its last attempt")
 
   (assert-true test
-    (let-do [url (closed-url)
-             t0 (System.nanotime)
-             r (LLM.embed-with-retry &(LLM.vllm &url "")
-                                     &(LLM.embedding-request "m" [@"hi"])
-                                     &(RetryPolicy.init 3 60 200 false false))]
-      (and
-        (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
-        (match r (Result.Error (LLMError.Transport _)) true _ false)))
-    "embed-with-retry sleeps between attempts before giving up")
+    (let [url (closed-url)]
+      (match (LLM.embed-with-retry &(LLM.vllm &url "")
+                                   &(LLM.embedding-request "m" [@"hi"])
+                                   &(RetryPolicy.init 3 1 1 false false []))
+        (Result.Error (LLMError.Transport _)) true
+        _ false))
+    "embed-with-retry reports the transport error after its last attempt")
 
   (assert-true test
-    (let-do [url (closed-url)
-             tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
-             handler (fn [tc] @"result")
-             t0 (System.nanotime)
-             r (LLM.chat-loop-with-retry &(LLM.vllm &url "")
-                                         "m"
-                                         [(Message.user "hi")]
-                                         8
-                                         0.0
-                                         &tools
-                                         handler
-                                         5
-                                         &(RetryPolicy.init 3 60 200 false false))]
-      (and
-        (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
-        (match r (Result.Error (LLMError.Transport _)) true _ false)))
-    "chat-loop-with-retry sleeps between attempts before giving up")
+    (let [url (closed-url)
+          tools [(ToolDef.init @"f" @"desc" (JSON.obj []))]
+          handler (fn [tc] @"result")]
+      (match (LLM.chat-loop-with-retry &(LLM.vllm &url "")
+                                       "m"
+                                       [(Message.user "hi")]
+                                       8
+                                       0.0
+                                       &tools
+                                       handler
+                                       5
+                                       &(RetryPolicy.init 3 1 1 false false []))
+        (Result.Error (LLMError.Transport _)) true
+        _ false))
+    "chat-loop-with-retry reports the transport error after its last attempt")
 
   (assert-equal test
     1000
-    (RetryPolicy.retry-after-delay &(RetryPolicy.init 3 500 1500 true false) 1)
+    (RetryPolicy.retry-after-delay
+      &(RetryPolicy.init 3 500 1500 true false [])
+      1)
     "retry-after-delay does not round a wait up to a cap that is not whole seconds")
 
   (assert-equal test
     0
-    (RetryPolicy.retry-after-delay &(RetryPolicy.init 3 500 900 true false) 0)
+    (RetryPolicy.retry-after-delay &(RetryPolicy.init 3 500 900 true false []) 0)
     "retry-after-delay of zero seconds is no wait, whatever the cap")
 
   (assert-equal test
@@ -2882,7 +2909,7 @@ data: {\"type\":\"message_stop\"}
   (assert-equal test
     2147483000
     (RetryPolicy.retry-after-delay
-      &(RetryPolicy.init 3 500 Int.MAX true false)
+      &(RetryPolicy.init 3 500 Int.MAX true false [])
       2147483)
     "retry-after-delay converts the largest representable wait without overflowing")
 
@@ -2912,14 +2939,14 @@ data: {\"type\":\"message_stop\"}
   (assert-equal test
     30000
     (llm-retry-delay &(RetryPolicy.default)
-                     &(Maybe.Just @"Fri, 01 Jan 2100 00:00:00 GMT")
+                     &(retry-after-response "Fri, 01 Jan 2100 00:00:00 GMT")
                      1)
     "a far-future Retry-After date waits the cap instead of retrying at once")
 
   (assert-true test
     (let-do [t0 (System.nanotime)]
-      (llm-sleep-ms 120)
-      (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l)))
+      (llm-sleep-ms 20)
+      (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 10000000l)))
     "llm-sleep-ms sleeps for the delay it is given")
 
   (assert-true test
@@ -2930,7 +2957,7 @@ data: {\"type\":\"message_stop\"}
                                                        [(Message.user "hi")]
                                                        8
                                                        0.0)
-                                    &(RetryPolicy.init 0 60 200 false false))]
+                                    &(RetryPolicy.init 0 60 200 false false []))]
       (and
         (Uint64.< (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
         (match r (Result.Error (LLMError.Transport _)) true _ false)))
@@ -2985,12 +3012,12 @@ data: {\"type\":\"message_stop\"}
 
   (assert-equal test
     6
-    (RetryPolicy.delay-for &(RetryPolicy.init 5 3 7 false false) 2)
+    (RetryPolicy.delay-for &(RetryPolicy.init 5 3 7 false false []) 2)
     "delay-for doubles into an odd cap instead of clamping a step early")
 
   (assert-equal test
     7
-    (RetryPolicy.delay-for &(RetryPolicy.init 5 3 7 false false) 3)
+    (RetryPolicy.delay-for &(RetryPolicy.init 5 3 7 false false []) 3)
     "delay-for reaches an odd cap on the doubling that would overshoot it")
 
   (assert-true test
@@ -3028,7 +3055,7 @@ data: {\"type\":\"message_stop\"}
                                                        [(Message.user "hi")]
                                                        8
                                                        0.0)
-                                    &(RetryPolicy.init 5 200 200 false false))]
+                                    &(RetryPolicy.init 5 200 200 false false []))]
       (and
         (Uint64.< (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
         (match r (Result.Error (LLMError.Transport _)) true _ false)))
@@ -3038,7 +3065,7 @@ data: {\"type\":\"message_stop\"}
     (let-do [t0 (System.nanotime)
              r (LLM.embed-with-retry &(LLM.vllm "http://127.0.0.1:nope" "")
                                      &(LLM.embedding-request "m" [@"hi"])
-                                     &(RetryPolicy.init 5 200 200 false false))]
+                                     &(RetryPolicy.init 5 200 200 false false []))]
       (and
         (Uint64.< (Uint64.- (System.nanotime) t0) (Uint64.from-long 100000000l))
         (match r (Result.Error (LLMError.Transport _)) true _ false)))
@@ -3046,6 +3073,20 @@ data: {\"type\":\"message_stop\"}
 
   (assert-true test
     (let-do [t0 (System.nanotime)]
-      (llm-sleep-ms 1050)
-      (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 1000000000l)))
-    "llm-sleep-ms sleeps a delay that spans several chunks"))
+      (llm-sleep-chunked 15 5)
+      (Uint64.> (Uint64.- (System.nanotime) t0) (Uint64.from-long 10000000l)))
+    "a delay spanning several chunks sleeps for the whole delay")
+
+  (assert-true test
+    (llm-permanent-transport-error? "incomplete HTTP headers")
+    "a truncated response is not retried")
+
+  (assert-true test
+    (llm-permanent-transport-error?
+      "Malformed response: found header 'cookie malformed: expected key=value pair'")
+    "an unparseable response is not retried")
+
+  (assert-true test
+    (llm-permanent-transport-error?
+      "error:0A000086:SSL routines::certificate verify failed")
+    "a certificate that does not verify is not retried"))

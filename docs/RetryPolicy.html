@@ -109,6 +109,7 @@ One attempt is always made, so anything below <code>1</code> behaves as <code>1<
 <li><code>honour-retry-after</code>: whether a <code>Retry-After</code> response header replaces the
 computed delay</li>
 <li><code>jitter</code>: whether to draw each computed delay uniformly from <code>[0, delay]</code></li>
+<li><code>retryable-statuses</code>: the HTTP status codes that deserve another attempt</li>
 </ul>
 <p>Jitter is off by default so that delays are reproducible; turn it on when many
 clients share one provider and would otherwise retry in lockstep.</p>
@@ -172,7 +173,8 @@ clients share one provider and would otherwise retry in lockstep.</p>
                     </pre>
                     <p class="doc">
                         <p>is a conservative policy: three attempts, 500ms of base delay
-doubling up to a 30s cap, honouring <code>Retry-After</code>, without jitter.</p>
+doubling up to a 30s cap, honouring <code>Retry-After</code>, without jitter. It retries
+429, the 500, 502, 503 and 504 server errors, and Anthropic's 529.</p>
 
                     </p>
                 </div>
@@ -248,7 +250,7 @@ double per attempt, clamped to <code>max-delay-ms</code>.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Int, Int, Int, Bool, Bool] RetryPolicy)
+                        (Fn [Int, Int, Int, Bool, Bool, (Array Int)] RetryPolicy)
                     </p>
                     <span>
                         
@@ -460,15 +462,35 @@ caller for arbitrarily long.</p>
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Int StaticLifetime)] Bool)
+                        (Fn [(Ref RetryPolicy a), (Ref Int a)] Bool)
                     </p>
                     <pre class="args">
-                        (retryable-status? code)
+                        (retryable-status? p code)
                     </pre>
                     <p class="doc">
                         <p>checks whether an HTTP status code deserves another
-attempt: 429 plus the 500, 502, 503 and 504 server errors. Every other status,
-the remaining 4xx included, is reported to the caller unretried.</p>
+attempt under <code>p</code>. Every status outside <code>retryable-statuses</code>, the remaining 4xx
+included, is reported to the caller unretried.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#retryable-statuses">
+                        <h3 id="retryable-statuses">
+                            retryable-statuses
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref RetryPolicy a)] (Ref (Array Int) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>retryable-statuses</code> property of a <code>RetryPolicy</code>.</p>
 
                     </p>
                 </div>
@@ -482,14 +504,15 @@ the remaining 4xx included, is reported to the caller unretried.</p>
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref LLMError StaticLifetime)] Bool)
+                        (Fn [(Ref RetryPolicy a), (Ref LLMError a)] Bool)
                     </p>
                     <pre class="args">
-                        (retryable? e)
+                        (retryable? p e)
                     </pre>
                     <p class="doc">
-                        <p>checks whether an <code>LLMError</code> deserves another attempt.
-Transport failures always do; API errors are judged by <code>retryable-status?</code>.</p>
+                        <p>checks whether an <code>LLMError</code> deserves another attempt under
+<code>p</code>. Transport failures do, unless they are a failure another attempt cannot
+change; API errors are judged by <code>retryable-status?</code>.</p>
 <p>This is for callers holding an <code>LLMError</code>. The <code>-with-retry</code> entry points
 decide before an error exists, from the response status, and so reach for
 <code>retryable-status?</code> directly.</p>
@@ -697,6 +720,46 @@ decide before an error exists, from the response status, and so reach for
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-retryable-statuses">
+                        <h3 id="set-retryable-statuses">
+                            set-retryable-statuses
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [RetryPolicy, (Array Int)] RetryPolicy)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>retryable-statuses</code> property of a <code>RetryPolicy</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-retryable-statuses!">
+                        <h3 id="set-retryable-statuses!">
+                            set-retryable-statuses!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref RetryPolicy a), (Array Int)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>retryable-statuses</code> property of a <code>RetryPolicy</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#str">
                         <h3 id="str">
                             str
@@ -813,6 +876,26 @@ decide before an error exists, from the response status, and so reach for
                     </span>
                     <p class="doc">
                         <p>updates the <code>max-delay-ms</code> property of a <code>RetryPolicy</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-retryable-statuses">
+                        <h3 id="update-retryable-statuses">
+                            update-retryable-statuses
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [RetryPolicy, (Ref (Fn [(Array Int)] (Array Int) a) b)] RetryPolicy)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>retryable-statuses</code> property of a <code>RetryPolicy</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
