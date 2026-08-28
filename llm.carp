@@ -173,6 +173,116 @@ rather than constructing directly.
    api-key String
    api-version String])
 
+(doc RetryPolicy "controls automatic retries for the `-with-retry` entry points.
+
+- `max-attempts`: total tries including the first, so `1` never retries.
+  One attempt is always made, so anything below `1` behaves as `1`
+- `base-delay-ms`: how long to wait after the first failure
+- `max-delay-ms`: an upper bound on every delay, `Retry-After` included
+- `honour-retry-after`: whether a `Retry-After` response header replaces the
+  computed delay
+- `jitter`: whether to draw each computed delay uniformly from `[0, delay]`
+- `retryable-statuses`: the HTTP status codes that deserve another attempt
+
+Jitter is off by default so that delays are reproducible; turn it on when many
+clients share one provider and would otherwise retry in lockstep.
+
+Build with `RetryPolicy.default` or `RetryPolicy.none`.")
+(deftype RetryPolicy
+  [max-attempts Int
+   base-delay-ms Int
+   max-delay-ms Int
+   honour-retry-after Bool
+   jitter Bool
+   retryable-statuses (Array Int)])
+
+(defmodule RetryPolicy
+  (doc default "is a conservative policy: three attempts, 500ms of base delay
+doubling up to a 30s cap, honouring `Retry-After`, without jitter. It retries
+429, the 500, 502, 503 and 504 server errors, and Anthropic's 529.")
+  (defn default []
+    (RetryPolicy.init 3 500 30000 true false [429 500 502 503 504 529]))
+
+  (doc none "is a policy that never retries. It is what `LLM.chat`,
+`LLM.chat-stream`, `LLM.chat-loop` and `LLM.embed` use.")
+  (defn none [] (RetryPolicy.init 1 0 0 false false []))
+
+  (doc retryable-status? "checks whether an HTTP status code deserves another
+attempt under `p`. Every status outside `retryable-statuses`, the remaining 4xx
+included, is reported to the caller unretried.")
+  (defn retryable-status? [p code] (Array.contains? (retryable-statuses p) code))
+
+  (doc delay-for "returns the delay in milliseconds to wait before `attempt`,
+counting the first retry as attempt 1. Delays start at `base-delay-ms` and
+double per attempt, clamped to `max-delay-ms`.")
+  (defn delay-for [p attempt]
+    (let-do [cap (max 0 @(max-delay-ms p))
+             d (max 0 @(base-delay-ms p))
+             i 1]
+      (while-do (< i attempt)
+        (if (> d (/ cap 2)) (do (set! d cap) (break)) (set! d (* d 2)))
+        (set! i (Int.inc i)))
+      (min d cap)))
+
+  (doc jittered "draws a delay uniformly from `[0, ms]` if the policy asks for
+jitter, and returns `ms` unchanged otherwise.")
+  (defn jittered [p ms]
+    (if (and @(jitter p) (> ms 0))
+      (Int.random-between 0 (Int.inc (min ms (Int.dec Int.MAX))))
+      ms))
+
+  (doc retry-after-delay "converts a `Retry-After` wait of `secs` seconds into a
+delay in milliseconds, clamped to `max-delay-ms` so that a server cannot park a
+caller for arbitrarily long.")
+  (defn retry-after-delay [p secs]
+    (let [cap (max 0 @(max-delay-ms p))]
+      (if (> secs (/ cap 1000)) cap (min (* (max 0 secs) 1000) cap))))
+
+  (private delta-seconds)
+  (hidden delta-seconds)
+  (defn delta-seconds [digits]
+    (match (Long.from-string digits)
+      (Maybe.Just l)
+        (Maybe.Just (if (> l (Long.from-int Int.MAX)) Int.MAX (Long.to-int l)))
+      (Maybe.Nothing) (Maybe.Nothing)))
+
+  (private MAX-WAIT-DAYS)
+  (hidden MAX-WAIT-DAYS)
+  (def MAX-WAIT-DAYS (/ (- Int.MAX 86399) 86400))
+
+  (private seconds-until)
+  (hidden seconds-until)
+  (defn seconds-until [d now]
+    (let [ud (Datetime.to-utc d)
+          un (Datetime.to-utc now)]
+      (if (>
+          (- (Datetime.to-ordinal &ud) (Datetime.to-ordinal &un))
+          MAX-WAIT-DAYS)
+        Int.MAX
+        (max 0 (Datetime.diff &ud &un)))))
+
+  (doc parse-retry-after-at "parses a `Retry-After` header value as of `now`,
+returning the number of seconds to wait.
+
+Both forms of RFC 9110 §10.2.3 are understood: a non-negative delta-seconds
+count, and an HTTP-date, whose wait is measured from `now` and floored at zero.
+Anything else yields `Nothing`.
+
+Leading zeros are part of delta-seconds and are read as written. A count larger
+than `Int.MAX`, and a date more than `Int.MAX` seconds ahead, both saturate at
+`Int.MAX` rather than reading as a short wait.")
+  (defn parse-retry-after-at [value now]
+    (let [v &(String.trim value)]
+      (if (Pattern.matches? #"^\d+$" v)
+        (delta-seconds v)
+        (match (HttpDate.parse v)
+          (Result.Success d) (Maybe.Just (seconds-until &d now))
+          (Result.Error _) (Maybe.Nothing)))))
+
+  (doc parse-retry-after "parses a `Retry-After` header value against the
+current time. See `parse-retry-after-at`.")
+  (defn parse-retry-after [value] (parse-retry-after-at value &(Datetime.now))))
+
 (defmodule Role
   (doc str "returns the wire-format string for a role (`\"system\"`, `\"user\"`,
 `\"assistant\"`, or `\"tool\"`).")
@@ -1364,6 +1474,123 @@ array of content parts (OpenAI format).")
     (= provider "gemini") (Gemini.parse-response body)
     (Result.Error @"unknown provider")))
 
+(defn llm-sleep-chunked [ms chunk]
+  (let-do [left ms]
+    (while-do (> left 0)
+      (let-do [c (min left chunk)]
+        (System.sleep-micros (* c 1000))
+        (set! left (- left c))))))
+
+(defn llm-sleep-ms [ms] (llm-sleep-chunked ms 999))
+
+(defn llm-backoff-delay [policy attempt]
+  (RetryPolicy.jittered policy (RetryPolicy.delay-for policy attempt)))
+
+(defn llm-retry-delay [policy resp attempt]
+  (match (if @(RetryPolicy.honour-retry-after policy)
+      (match-ref &(Response.header resp "Retry-After")
+        (Maybe.Just v) (RetryPolicy.parse-retry-after v)
+        (Maybe.Nothing) (Maybe.Nothing))
+      (Maybe.Nothing))
+    (Maybe.Just secs) (RetryPolicy.retry-after-delay policy secs)
+    (Maybe.Nothing) (llm-backoff-delay policy attempt)))
+
+(defn llm-retries-left? [policy attempt]
+  (< attempt @(RetryPolicy.max-attempts policy)))
+
+; prose owned by http-client, uri and OpenSSL; carpentry-org/http-client#24 would replace it
+(def llm-permanent-errors
+  [@"Invalid URI"
+   @"missing host in URL"
+   @"redirect without Location header"
+   @"redirect with empty Location header"
+   @"too many redirects"
+   @"incomplete HTTP headers"
+   @"Malformed response"])
+
+(defn llm-permanent-transport-error? [e]
+  (or
+    (Array.any? &(fn [p] (llm-byte-starts-with? e p)) &llm-permanent-errors)
+    (String.contains-string? e "certificate verify failed")))
+
+(defmodule RetryPolicy
+  (doc retryable? "checks whether an `LLMError` deserves another attempt under
+`p`. Transport failures do, unless they are a failure another attempt cannot
+change; API errors are judged by `retryable-status?`.
+
+This is for callers holding an `LLMError`. The `-with-retry` entry points
+decide before an error exists, from the response status, and so reach for
+`retryable-status?` directly.")
+  (defn retryable? [p e]
+    (match-ref e
+      (LLMError.Transport msg) (not (llm-permanent-transport-error? msg))
+      (LLMError.Api code _ _) (retryable-status? p code))))
+
+(defn llm-drain-stream [rs]
+  (let-do [sb (StringBuf.create)
+           drain-done false]
+    (while (not drain-done)
+      (match (ResponseStream.poll rs)
+        (Maybe.Nothing) (set! drain-done true)
+        (Maybe.Just chunk) (StringBuf.append-str &sb &chunk)))
+    (let-do [body (StringBuf.to-string &sb)] (StringBuf.delete sb) body)))
+
+(defn llm-stream-outcome [provider rs]
+  (if (Response.ok? (ResponseStream.parsed-response &rs))
+    (Result.Success rs)
+    (let-do [sc @(ResponseStream.status-code &rs)
+             err-body (llm-drain-stream &rs)]
+      (ResponseStream.close rs)
+      (llm-parse-error provider sc &err-body))))
+
+(defn llm-attempt-headers [provider config body]
+  (llm-build-headers provider config (String.length body)))
+
+(defn llm-stream-last [provider config url body]
+  (match (Client.request-stream "POST"
+                                url
+                                (llm-attempt-headers provider config body)
+                                body)
+    (Result.Success rs) (llm-stream-outcome provider rs)
+    (Result.Error e) (llm-transport-error e)))
+
+(defn llm-stream-round [policy provider config url body attempt]
+  (match (Client.request-stream "POST"
+                                url
+                                (llm-attempt-headers provider config body)
+                                body)
+    (Result.Success rs)
+      (if (RetryPolicy.retryable-status? policy (ResponseStream.status-code &rs))
+        (let-do [delay (llm-retry-delay policy
+                                        (ResponseStream.parsed-response &rs)
+                                        attempt)]
+          (ResponseStream.close rs)
+          (llm-sleep-ms delay)
+          (Maybe.Nothing))
+        (Maybe.Just (llm-stream-outcome provider rs)))
+    (Result.Error e)
+      (if (llm-permanent-transport-error? &e)
+        (Maybe.Just (llm-transport-error e))
+        (do (llm-sleep-ms (llm-backoff-delay policy attempt)) (Maybe.Nothing)))))
+
+(defn llm-stream-with-retry [policy provider config url body]
+  (let-do [attempt 1
+           settled (the (Maybe (Result ResponseStream LLMError)) (Maybe.Nothing))]
+    (while-do (and (Maybe.nothing? &settled) (llm-retries-left? policy attempt))
+      (set! settled (llm-stream-round policy provider config url body attempt))
+      (set! attempt (Int.inc attempt)))
+    (match settled
+      (Maybe.Just r) r
+      (Maybe.Nothing) (llm-stream-last provider config url body))))
+
+(defn llm-send-with-retry [policy provider config url body]
+  (match (llm-stream-with-retry policy provider config url body)
+    (Result.Success rs)
+      (let-do [decoded (llm-drain-stream &rs)]
+        (ResponseStream.close rs)
+        (Result.Success decoded))
+    (Result.Error e) (Result.Error e)))
+
 (doc LLM "is a multi-provider LLM client supporting Anthropic, OpenAI, Ollama,
 and Gemini.
 
@@ -1469,29 +1696,35 @@ schema. The schema is a JSON value (use the `JSON` constructors).")
                      -100.0
                      -1))
 
-  (doc chat "sends a chat request to the configured provider.
-Returns `(Result LLMResponse LLMError)`. On HTTP errors (4xx/5xx), returns a
-structured `LLMError.Api` with status code, error type, and message parsed from
-the provider's error response. On transport failures, returns `LLMError.Transport`.")
-  (defn chat [config req]
+  (doc chat-with-retry "sends a chat request, retrying failures according to
+`policy`. See `chat` for the return value and `RetryPolicy` for the knobs.
+
+```
+(LLM.chat-with-retry &config &req &(RetryPolicy.default))
+```")
+  (defn chat-with-retry [config req policy]
     (let [name (ProviderConfig.name config)]
       (if (not (llm-known-provider? name))
         (llm-transport-error (String.concat &[@"unknown provider: " @name]))
         (let [base (ProviderConfig.base-url config)
               body (llm-build-body name req)
               path (llm-endpoint-path name config req)
-              url (String.concat &[@base path])
-              hdrs (llm-build-headers name config (String.length &body))]
-          (match (Client.request "POST" &url hdrs &body)
-            (Result.Success resp)
-              (if (Response.ok? &resp)
-                (match (llm-parse-success name (Response.body &resp))
-                  (Result.Success r) (Result.Success r)
-                  (Result.Error e) (llm-transport-error e))
-                (llm-parse-error name
-                                 @(Response.code &resp)
-                                 (Response.body &resp)))
-            (Result.Error e) (llm-transport-error e)))))))
+              url (String.concat &[@base path])]
+          (match (llm-send-with-retry policy name config &url &body)
+            (Result.Success resp-body)
+              (match (llm-parse-success name &resp-body)
+                (Result.Success r) (Result.Success r)
+                (Result.Error e) (llm-transport-error e))
+            (Result.Error e) (Result.Error e))))))
+
+  (doc chat "sends a chat request to the configured provider.
+Returns `(Result LLMResponse LLMError)`. On HTTP errors (4xx/5xx), returns a
+structured `LLMError.Api` with status code, error type, and message parsed from
+the provider's error response. On transport failures, returns `LLMError.Transport`.
+
+Makes exactly one attempt. Use `chat-with-retry` to retry rate limits and
+server errors.")
+  (defn chat [config req] (LLM.chat-with-retry config req &(RetryPolicy.none))))
 
 (doc LlmStream "is a pull-based stream of tokens and tool calls from an LLM
 response. Wraps a `ResponseStream` and parses provider-specific streaming
@@ -1689,34 +1922,31 @@ streams will have an empty string as their ID.
   (defn close [s] (ResponseStream.close! (rs &s))))
 
 (defmodule LLM
-  (doc chat-stream "sends a streaming chat request and returns an `LlmStream`.
-Poll the stream for tokens. Returns `(Result LlmStream LLMError)`. Checks
-the HTTP status code before returning the stream.")
-  (defn chat-stream [config req]
+  (doc chat-stream-with-retry "sends a streaming chat request, retrying failures
+according to `policy`. Only the initial response counts: once a stream is
+handed back, a failure mid-stream is the caller's to handle. See `chat-stream`
+for the return value.")
+  (defn chat-stream-with-retry [config req policy]
     (let [name (ProviderConfig.name config)]
       (if (not (llm-known-provider? name))
         (llm-transport-error (String.concat &[@"unknown provider: " @name]))
         (let [base (ProviderConfig.base-url config)
               body (llm-build-stream-body name req)
               path (llm-stream-endpoint-path name config req)
-              url (String.concat &[@base path])
-              hdrs (llm-build-headers name config (String.length &body))]
-          (match (Client.request-stream "POST" &url hdrs &body)
+              url (String.concat &[@base path])]
+          (match (llm-stream-with-retry policy name config &url &body)
             (Result.Success rs)
-              (if (< @(ResponseStream.status-code &rs) 400)
-                (Result.Success
-                  (LlmStream.init rs @"" @name @"" @"" @"" [] false))
-                (let-do [sc @(ResponseStream.status-code &rs)
-                         err-body @""
-                         drain-done false]
-                  (while (not drain-done)
-                    (match (ResponseStream.poll &rs)
-                      (Maybe.Nothing) (set! drain-done true)
-                      (Maybe.Just chunk)
-                        (set! err-body (String.concat &[err-body chunk]))))
-                  (ResponseStream.close rs)
-                  (llm-parse-error name sc &err-body)))
-            (Result.Error e) (llm-transport-error e)))))))
+              (Result.Success (LlmStream.init rs @"" @name @"" @"" @"" [] false))
+            (Result.Error e) (Result.Error e))))))
+
+  (doc chat-stream "sends a streaming chat request and returns an `LlmStream`.
+Poll the stream for tokens. Returns `(Result LlmStream LLMError)`. Checks
+the HTTP status code before returning the stream.
+
+Makes exactly one attempt. Use `chat-stream-with-retry` to retry rate limits
+and server errors.")
+  (defn chat-stream [config req]
+    (LLM.chat-stream-with-retry config req &(RetryPolicy.none))))
 
 (defn llm-loop-should-continue? [response iter max-iters]
   (and (> (Array.length (LLMResponse.tool-calls response)) 0) (< iter max-iters)))
@@ -1739,6 +1969,40 @@ the HTTP status code before returning the stream.")
     (Array.concat &[(Array.push-back msgs asst-msg) tool-msgs])))
 
 (defmodule LLM
+  (doc chat-loop-with-retry "runs an agentic tool-use loop in which every
+request retries according to `policy`. The policy applies per request, not to
+the loop as a whole. See `chat-loop` for the arguments and the return value.")
+  (defn chat-loop-with-retry [config
+                              model
+                              messages
+                              max-tokens
+                              temperature
+                              tools
+                              handler
+                              max-iters
+                              policy]
+    (let-do [msgs messages
+             result (the (Result LLMResponse LLMError)
+                         (Result.Error (LLMError.Transport @"")))
+             done false
+             i 0]
+      (while (not done)
+        (let [req (LLM.chat-request-with-tools model
+                                               @&msgs
+                                               max-tokens
+                                               temperature
+                                               @tools)]
+          (match (LLM.chat-with-retry config &req policy)
+            (Result.Error e)
+              (do (set! result (Result.Error e)) (set! done true))
+            (Result.Success r)
+              (if (not (llm-loop-should-continue? &r i max-iters))
+                (do (set! result (Result.Success r)) (set! done true))
+                (do
+                  (set! msgs (llm-apply-loop-step msgs &r &handler))
+                  (set! i (inc i)))))))
+      result))
+
   (doc chat-loop "runs an agentic tool-use loop. Calls `chat` with the given
 tools, invokes `handler` for each tool call in the response, appends tool
 results to the conversation, and repeats until the model stops calling tools
@@ -1749,6 +2013,9 @@ The handler receives a `(Ref ToolCall)` and returns the tool result as a
 
 Returns the final `(Result LLMResponse LLMError)`. If the iteration limit is
 reached, the last response is returned (it may still contain tool calls).
+
+Each request makes exactly one attempt. Use `chat-loop-with-retry` to retry
+rate limits and server errors.
 
 ```
 (let [config (LLM.ollama \"http://localhost:11434\")
@@ -1770,27 +2037,15 @@ reached, the last response is returned (it may still contain tool calls).
                    tools
                    handler
                    max-iters]
-    (let-do [msgs messages
-             result (the (Result LLMResponse LLMError)
-                         (Result.Error (LLMError.Transport @"")))
-             done false
-             i 0]
-      (while (not done)
-        (let [req (LLM.chat-request-with-tools model
-                                               @&msgs
-                                               max-tokens
-                                               temperature
-                                               @tools)]
-          (match (LLM.chat config &req)
-            (Result.Error e)
-              (do (set! result (Result.Error e)) (set! done true))
-            (Result.Success r)
-              (if (not (llm-loop-should-continue? &r i max-iters))
-                (do (set! result (Result.Success r)) (set! done true))
-                (do
-                  (set! msgs (llm-apply-loop-step msgs &r &handler))
-                  (set! i (inc i)))))))
-      result)))
+    (LLM.chat-loop-with-retry config
+                              model
+                              messages
+                              max-tokens
+                              temperature
+                              tools
+                              handler
+                              max-iters
+                              &(RetryPolicy.none))))
 
 (doc EmbeddingRequest "a request to generate text embeddings.
 
@@ -1946,11 +2201,32 @@ Build with `LLM.embedding-request` rather than constructing directly.
 - `input`: an array of text strings to embed")
   (defn embedding-request [model input] (EmbeddingRequest.init @model input))
 
+  (doc embed-with-retry "sends an embedding request, retrying failures
+according to `policy`. See `embed` for the return value.")
+  (defn embed-with-retry [config req policy]
+    (let [name (ProviderConfig.name config)]
+      (if (not (llm-embedding-provider? name))
+        (llm-transport-error
+          (String.concat &[@name @" does not support embeddings"]))
+        (let [base (ProviderConfig.base-url config)
+              body (llm-build-embedding-body name req)
+              path (llm-embedding-endpoint-path name config req)
+              url (String.concat &[@base path])]
+          (match (llm-send-with-retry policy name config &url &body)
+            (Result.Success resp-body)
+              (match (llm-parse-embedding-success name &resp-body)
+                (Result.Success r) (Result.Success r)
+                (Result.Error e) (llm-transport-error e))
+            (Result.Error e) (Result.Error e))))))
+
   (doc embed "sends an embedding request to the configured provider.
 Returns `(Result EmbeddingResponse LLMError)`.
 
 Anthropic does not offer an embeddings API; calling this with an Anthropic
 config returns a `Transport` error.
+
+Makes exactly one attempt. Use `embed-with-retry` to retry rate limits and
+server errors.
 
 ```
 (let [config (LLM.openai \"sk-...\")
@@ -1961,23 +2237,4 @@ config returns a `Transport` error.
       (println* (Array.length (EmbeddingResponse.embeddings &r)))
     (Result.Error e) (IO.errorln &(LLMError.str &e))))
 ```")
-  (defn embed [config req]
-    (let [name (ProviderConfig.name config)]
-      (if (not (llm-embedding-provider? name))
-        (llm-transport-error
-          (String.concat &[@name @" does not support embeddings"]))
-        (let [base (ProviderConfig.base-url config)
-              body (llm-build-embedding-body name req)
-              path (llm-embedding-endpoint-path name config req)
-              url (String.concat &[@base path])
-              hdrs (llm-build-headers name config (String.length &body))]
-          (match (Client.request "POST" &url hdrs &body)
-            (Result.Success resp)
-              (if (Response.ok? &resp)
-                (match (llm-parse-embedding-success name (Response.body &resp))
-                  (Result.Success r) (Result.Success r)
-                  (Result.Error e) (llm-transport-error e))
-                (llm-parse-error name
-                                 @(Response.code &resp)
-                                 (Response.body &resp)))
-            (Result.Error e) (llm-transport-error e)))))))
+  (defn embed [config req] (LLM.embed-with-retry config req &(RetryPolicy.none))))
