@@ -18,9 +18,11 @@
     (TcpListener.close listener)
     (let [rs (ResponseStream.init (Connection.Plain client)
                                   @""
-                                  @""
+                                  0
+                                  (Maybe.Nothing)
                                   false
                                   true
+                                  (Maybe.Nothing)
                                   200
                                   (Response.init 200
                                                  @"OK"
