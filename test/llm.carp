@@ -3078,8 +3078,12 @@ data: {\"type\":\"message_stop\"}
     "a delay spanning several chunks sleeps for the whole delay")
 
   (assert-true test
-    (llm-permanent-transport-error? "incomplete HTTP headers")
-    "a truncated response is not retried")
+    (not (llm-permanent-transport-error? "incomplete HTTP headers"))
+    "a peer that hangs up mid-header is retried, like any other dropped connection")
+
+  (assert-true test
+    (not (llm-permanent-transport-error? "read error: Connection reset by peer"))
+    "and so is the same reset a few bytes later, which is the point of the pair")
 
   (assert-true test
     (llm-permanent-transport-error?

@@ -1498,14 +1498,19 @@ array of content parts (OpenAI format).")
 (defn llm-retries-left? [policy attempt]
   (< attempt @(RetryPolicy.max-attempts policy)))
 
-; prose owned by http-client, uri and OpenSSL; carpentry-org/http-client#24 would replace it
+; Prose owned by http-client, uri and OpenSSL; carpentry-org/http-client#24
+; would replace it. Every entry is a failure that arrived as an answer we could
+; not use, so re-sending cannot change it. A connection that died mid-flight is
+; deliberately absent: `incomplete HTTP headers` is http-client's string for a
+; peer that hung up before the header terminator, which is the most ordinary
+; transient failure there is, and treating it as permanent would also split it
+; from `read error`, the same reset a few bytes later, which stays retryable.
 (def llm-permanent-errors
   [@"Invalid URI"
    @"missing host in URL"
    @"redirect without Location header"
    @"redirect with empty Location header"
    @"too many redirects"
-   @"incomplete HTTP headers"
    @"Malformed response"])
 
 (defn llm-permanent-transport-error? [e]
