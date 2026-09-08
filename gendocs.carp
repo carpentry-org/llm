@@ -88,6 +88,7 @@ plain HTTP works without OpenSSL.
            LLMResponse
            LLMError
            ProviderConfig
+           RetryPolicy
            ToolDef
            ToolCall
            OpenAI

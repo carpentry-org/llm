@@ -160,6 +160,63 @@ their native JSON mode.
 Anthropic does not offer an embeddings API — calling `LLM.embed` with an
 Anthropic config returns a `Transport` error.
 
+### Retries
+
+`LLM.chat`, `LLM.chat-stream`, `LLM.chat-loop` and `LLM.embed` make exactly one
+attempt. Each has a `-with-retry` counterpart that takes a `RetryPolicy` and
+retries 429 rate limits, the 500, 502, 503 and 504 server errors, Anthropic's
+529, and transport failures:
+
+```clojure
+(let [config (LLM.openai "sk-...")
+      req (LLM.chat-request "gpt-4" [(Message.user "hello")] 256 0.7)]
+  (match (LLM.chat-with-retry &config &req &(RetryPolicy.default))
+    (Result.Success r) (println* (LLMResponse.content &r))
+    (Result.Error e) (IO.errorln &(LLMError.str &e))))
+```
+
+`RetryPolicy.default` is three attempts with a 500ms base delay doubling to a
+30s cap. Every other 4xx comes straight back to you, since retrying a bad
+request only wastes quota. `retryable-statuses` names the set, so a provider
+with its own transient status is a field away.
+
+A transport failure means a connection that was refused, reset or closed. A
+failure that another attempt cannot change — a malformed base URL, a URL without
+a host, a redirect chain that could not be followed, a certificate that does not
+verify, or a response that arrived but could not be parsed — comes straight back
+to you on the first attempt. Requests carry no read timeout, so an endpoint that
+accepts the connection and then stalls blocks the attempt instead of failing it,
+and no retry follows.
+
+A retry re-sends the whole request, so a generation that the provider already
+ran and billed can run again: the client cannot tell a connection that failed on
+the way out from one that failed after the provider had answered.
+
+A `Retry-After` response header, in either the delta-seconds or the HTTP-date
+form, replaces the computed delay — still clamped to `max-delay-ms`, so a
+server cannot park you indefinitely. Set `honour-retry-after` to `false` to
+ignore it.
+
+Delays are deterministic by default. Set `jitter` to `true` to draw each
+computed delay uniformly from `[0, delay]` instead, which keeps many clients
+sharing one provider from retrying in lockstep.
+
+```clojure
+; five attempts, 200ms base, 10s cap, Retry-After honoured, jittered
+(RetryPolicy.init 5 200 10000 true true [429 500 502 503 504 529])
+
+; the default policy, also retrying 409 conflicts
+(RetryPolicy.set-retryable-statuses (RetryPolicy.default)
+                                    [409 429 500 502 503 504 529])
+
+; never retry, which is what the plain entry points use
+(RetryPolicy.none)
+```
+
+For streaming, the policy covers the initial response only: once a stream is
+handed back, a failure mid-stream is yours to handle. For `chat-loop` it
+applies per request, not to the loop as a whole.
+
 ## API
 
 ### Construction
@@ -191,6 +248,10 @@ Anthropic config returns a `Transport` error.
 | `LlmStream.poll stream` | Returns `(Maybe String)` — next text token, or `Nothing` when done |
 | `LlmStream.poll-event stream` | Returns `(Maybe StreamEvent)` — text or tool call event, or `Nothing` when done |
 | `LLM.embed config req` | Generate embeddings. Returns `(Result EmbeddingResponse LLMError)` |
+| `LLM.chat-with-retry config req policy` | `chat`, retrying per the `RetryPolicy` |
+| `LLM.chat-loop-with-retry config model msgs max-tokens temp tools handler max-iters policy` | `chat-loop`, retrying each request |
+| `LLM.chat-stream-with-retry config req policy` | `chat-stream`, retrying the initial response |
+| `LLM.embed-with-retry config req policy` | `embed`, retrying per the `RetryPolicy` |
 | `LlmStream.close stream` | Close the underlying connection |
 
 ### Errors
