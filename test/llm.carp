@@ -40,9 +40,11 @@
     (TcpListener.close listener)
     (ResponseStream.init (Connection.Plain client)
                          @""
-                         @""
+                         0
+                         (Maybe.Nothing)
                          false
                          done
+                         (Maybe.Nothing)
                          200
                          (Response.init 200
                                         @"OK"
