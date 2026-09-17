@@ -22,12 +22,10 @@
                   &[@"Embeddings: "
                     @&(Int.str (Array.length (EmbeddingResponse.embeddings &r)))
                     @" vectors"]))
-              (Array.for-each
-                &(fn [emb]
-                  (IO.println
-                    &(String.concat
-                      &[@"  dimensions: " @&(Int.str (Array.length emb))])))
-                (EmbeddingResponse.embeddings &r))
+              (foreach [emb (EmbeddingResponse.embeddings &r)]
+                (IO.println
+                  &(String.concat
+                    &[@"  dimensions: " @&(Int.str (Array.length emb))])))
               (IO.println
                 &(String.concat
                   &[@"Total tokens: "

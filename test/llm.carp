@@ -65,9 +65,14 @@
 
 (defn drained-body [payload]
   (let-do [rs (make-test-response-stream payload false)
-           body (llm-drain-stream &rs)]
+           drained (Client.drain-stream &rs)]
     (ResponseStream.close rs)
-    body))
+    (Result.from-success drained @"")))
+
+; The retry decision llm actually makes for a transport failure, routed through
+; the same path the engine uses.
+(defn retryable-transport? [ce]
+  (RetryPolicy.retryable? &(RetryPolicy.default) &(LLMError.Transport ce)))
 
 (defn render-token [t]
   (if (String.starts-with? t &(soh-prefix))
@@ -258,14 +263,14 @@
     (let [config (ProviderConfig.init @"bogus" @"http://x" @"" @"")
           req (LLM.chat-request "m" [(Message.user "hi")] 10 0.5)]
       (match (LLM.chat &config &req)
-        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        (Result.Error err) (match err (LLMError.Config _) true _ false)
         _ false))
-    "LLM.chat returns Transport error for unknown provider")
+    "LLM.chat returns Config error for unknown provider")
 
   (assert-true test
-    (let [err (LLMError.Transport @"connection refused")]
-      (= &(LLMError.str &err) "connection refused"))
-    "LLMError.Transport str shows message")
+    (let [err (LLMError.Transport (ClientError.Connect @"connection refused"))]
+      (= &(LLMError.str &err) "cannot connect: connection refused"))
+    "LLMError.Transport str shows the classified message")
 
   (assert-true test
     (let [err (LLMError.Api 401 @"authentication_error" @"invalid api key")]
@@ -1288,9 +1293,9 @@
                             &tools
                             handler
                             5)
-        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        (Result.Error err) (match err (LLMError.Config _) true _ false)
         _ false))
-    "LLM.chat-loop returns Transport error for unknown provider")
+    "LLM.chat-loop returns Config error for unknown provider")
 
   (assert-equal test
     "text-embedding-3-small"
@@ -1445,19 +1450,19 @@
       (match (LLM.embed &config &req)
         (Result.Error err)
           (match err
-            (LLMError.Transport msg)
+            (LLMError.Config msg)
               (String.contains-string? &msg "does not support embeddings")
             _ false)
         _ false))
-    "LLM.embed returns Transport error for Anthropic (no embeddings)")
+    "LLM.embed returns Config error for Anthropic (no embeddings)")
 
   (assert-true test
     (let [config (ProviderConfig.init @"bogus" @"http://x" @"" @"")
           req (LLM.embedding-request "m" [@"hi"])]
       (match (LLM.embed &config &req)
-        (Result.Error err) (match err (LLMError.Transport _) true _ false)
+        (Result.Error err) (match err (LLMError.Config _) true _ false)
         _ false))
-    "LLM.embed returns Transport error for unknown provider")
+    "LLM.embed returns Config error for unknown provider")
 
   (assert-true test
     (let [config (ProviderConfig.init @"ollama" @"http://localhost:1" @"" @"")
@@ -2806,12 +2811,13 @@ data: {\"type\":\"message_stop\"}
 
   (assert-true test
     (RetryPolicy.retryable? &(RetryPolicy.default)
-                            &(LLMError.Transport @"connection reset"))
+                            &(LLMError.Transport
+                              (ClientError.Receive @"connection reset")))
     "retryable? accepts transport failures")
 
   (assert-false test
     (RetryPolicy.retryable? &(RetryPolicy.default)
-                            &(LLMError.Transport @"missing host in URL"))
+                            &(LLMError.Transport (ClientError.Uri @"missing host in URL")))
     "retryable? agrees with the engine on a permanent transport failure")
 
   (assert-true test
@@ -3026,7 +3032,7 @@ data: {\"type\":\"message_stop\"}
   (assert-equal test
     &(String.repeat 2000 "0123456789")
     &(drained-body &(String.repeat 2000 "0123456789"))
-    "llm-drain-stream returns every chunk of a body that spans several reads")
+    "drain-stream returns every chunk of a body that spans several reads")
 
   (assert-equal test
     0
@@ -3080,33 +3086,25 @@ data: {\"type\":\"message_stop\"}
     (RetryPolicy.delay-for &(RetryPolicy.init 5 3 7 false false []) 3)
     "delay-for reaches an odd cap on the doubling that would overshoot it")
 
-  (assert-true test
-    (llm-permanent-transport-error? "missing host in URL")
-    "a URL without a host is a permanent transport error")
-
-  (assert-true test
-    (llm-permanent-transport-error? "Invalid URI: bad port at character 16")
-    "an unparseable URL is a permanent transport error")
-
-  (assert-true test
-    (llm-permanent-transport-error? "redirect without Location header")
-    "a redirect without a Location header is a permanent transport error")
-
-  (assert-true test
-    (llm-permanent-transport-error? "redirect with empty Location header")
-    "a redirect with an empty Location header is a permanent transport error")
-
-  (assert-true test
-    (llm-permanent-transport-error? "too many redirects (max 5)")
-    "an exhausted redirect budget is a permanent transport error")
+  (assert-false test
+    (retryable-transport? (ClientError.Uri @"missing host in URL"))
+    "a URL without a host is not retried")
 
   (assert-false test
-    (llm-permanent-transport-error? "Connection refused")
-    "a refused connection is not a permanent transport error")
+    (retryable-transport? (ClientError.Redirect @"too many redirects (max 5)"))
+    "an exhausted redirect budget is not retried")
 
   (assert-false test
-    (llm-permanent-transport-error? "")
-    "an empty transport error is not a permanent one")
+    (retryable-transport? (ClientError.Tls @"certificate verify failed"))
+    "a certificate that does not verify is not retried")
+
+  (assert-true test
+    (retryable-transport? (ClientError.Connect @"Connection refused"))
+    "a refused connection is retried")
+
+  (assert-true test
+    (retryable-transport? (ClientError.Dns @"nodename nor servname provided"))
+    "a name that did not resolve is retried, which the old prose could not see")
 
   (assert-true test
     (let-do [t0 (System.nanotime)
@@ -3138,19 +3136,33 @@ data: {\"type\":\"message_stop\"}
     "a delay spanning several chunks sleeps for the whole delay")
 
   (assert-true test
-    (not (llm-permanent-transport-error? "incomplete HTTP headers"))
+    (retryable-transport? (ClientError.Receive @"incomplete HTTP headers"))
     "a peer that hangs up mid-header is retried, like any other dropped connection")
 
   (assert-true test
-    (not (llm-permanent-transport-error? "read error: Connection reset by peer"))
+    (retryable-transport?
+      (ClientError.Receive @"read error: Connection reset by peer"))
     "and so is the same reset a few bytes later, which is the point of the pair")
 
-  (assert-true test
-    (llm-permanent-transport-error?
-      "Malformed response: found header 'cookie malformed: expected key=value pair'")
+  (assert-false test
+    (retryable-transport? (ClientError.Parse @"found header 'cookie malformed'"))
     "an unparseable response is not retried")
 
+  ; The half of the classification the prose never carried: a failure that was
+  ; delivered already cost a generation, whether or not it is worth retrying.
+  (assert-false test
+    (LLMError.delivered? &(LLMError.Transport (ClientError.Connect @"refused")))
+    "a refused connection delivered nothing")
+
   (assert-true test
-    (llm-permanent-transport-error?
-      "error:0A000086:SSL routines::certificate verify failed")
-    "a certificate that does not verify is not retried"))
+    (LLMError.delivered?
+      &(LLMError.Transport (ClientError.Receive @"read error")))
+    "a response that died mid-read was already delivered")
+
+  (assert-true test
+    (LLMError.delivered? &(LLMError.Api 500 @"server_error" @"boom"))
+    "an API error means the provider answered, so it was delivered")
+
+  (assert-false test
+    (LLMError.delivered? &(LLMError.Config @"unknown provider: nope"))
+    "a config refusal never reached the provider"))

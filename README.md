@@ -12,7 +12,7 @@ Built on [http-client](https://github.com/carpentry-org/http-client) and
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/llm@0.5.1")
+(load "git@github.com:carpentry-org/llm@0.6.0")
 ```
 
 Requires OpenSSL for HTTPS providers (Anthropic, OpenAI, Gemini). Ollama over
@@ -158,7 +158,7 @@ their native JSON mode.
 ```
 
 Anthropic does not offer an embeddings API — calling `LLM.embed` with an
-Anthropic config returns a `Transport` error.
+Anthropic config returns a `Config` error.
 
 ### Retries
 
@@ -258,12 +258,33 @@ applies per request, not to the loop as a whole.
 
 ```clojure
 (deftype LLMError
-  (Transport [String])          ; connection / DNS / network errors
+  (Transport [ClientError])     ; the HTTP request failed, classified by stage
+  (Config [String])             ; the request never left (unknown provider, ...)
+  (Decode [String])             ; the body is not valid for this provider
   (Api [Int String String]))    ; HTTP status, error type, message
 ```
 
-`LLMError.str &e` formats either variant for display. API errors are parsed
+`LLMError.str &e` formats any variant for display. API errors are parsed
 from each provider's specific error JSON shape.
+
+`Transport` carries http-client's `ClientError`, so a failure says at which
+stage it happened (`Uri`, `Dns`, `Connect`, `Tls`, `Send`, `Receive`, `Parse`,
+`Redirect`) instead of only how it reads. Two questions follow from it:
+
+- `RetryPolicy.retryable? &policy &e` — could another attempt succeed?
+- `LLMError.delivered? &e` — did the provider already receive the request? If
+  it did, a retry repeats work it has already done, which for a generation
+  endpoint is a second billed call.
+
+```clojure
+(match (LLM.chat &config &req)
+  (Result.Success r) (println* (LLMResponse.content &r))
+  (Result.Error e)
+    (if (and (RetryPolicy.retryable? &(RetryPolicy.default) &e)
+             (not (LLMError.delivered? &e)))
+      (retry)
+      (IO.errorln &(LLMError.str &e))))
+```
 
 ## Provider quirks
 

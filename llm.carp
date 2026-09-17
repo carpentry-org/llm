@@ -1,4 +1,4 @@
-(load "git@github.com:carpentry-org/http-client@0.6.0")
+(load "git@github.com:carpentry-org/http-client@0.7.0")
 (load "git@github.com:carpentry-org/json@0.6.0")
 
 (doc Role "is the role of a chat message. `System` for instructions, `User`
@@ -122,20 +122,41 @@ to set optional sampling parameters (e.g. `(LLMRequest.set-top-p req 0.9)`).
 
 (doc LLMError "represents an error from an LLM operation.
 
-- `Transport`: connection, DNS, or network error
+- `Transport`: the HTTP request failed, carrying http-client's `ClientError`,
+  which says at which stage and whether another attempt could help
+- `Config`: the request never left, because the provider or the operation is
+  not one this library can perform
+- `Decode`: the provider answered, but the body is not valid for its schema
 - `Api`: provider returned an error response (HTTP status, error type, message)")
 (deftype LLMError
-  (Transport [String])
+  (Transport [ClientError])
+  (Config [String])
+  (Decode [String])
   (Api [Int String String]))
 
 (defmodule LLMError
   (doc str "formats an `LLMError` as a human-readable string.")
   (defn str [e]
     (match-ref e
-      (LLMError.Transport msg) @msg
+      (LLMError.Transport ce) (ClientError.str ce)
+      (LLMError.Config msg) @msg
+      (LLMError.Decode msg) (String.concat &[@"malformed response: " @msg])
       (LLMError.Api code typ msg)
         (String.concat &[@"API error " @&(Int.str @code) @" (" @typ @"): " @msg])))
-  (implements str LLMError.str))
+  (implements str LLMError.str)
+
+  (doc delivered? "whether the provider received the request before the failure.
+
+`true` means a retry repeats work the provider has already done, which for a
+generation endpoint is a second billed call. A caller doing something that is
+not idempotent should check this before retrying, even when `retryable?` says
+another attempt could succeed.")
+  (defn delivered? [e]
+    (match-ref e
+      (LLMError.Transport ce) (ClientError.delivered? ce)
+      (LLMError.Config _) false
+      (LLMError.Decode _) true
+      (LLMError.Api _ _ _) true)))
 
 (doc StreamEvent "represents a single event from a streaming LLM response.
 
@@ -526,7 +547,11 @@ array of content parts (OpenAI format).")
     (Result.Success j) (Result.Success j)
     (Result.Error _) (Result.Error @"JSON parse error")))
 
-(defn llm-transport-error [msg] (Result.Error (LLMError.Transport msg)))
+(defn llm-transport-error [e] (Result.Error (LLMError.Transport e)))
+
+(defn llm-config-error [msg] (Result.Error (LLMError.Config msg)))
+
+(defn llm-decode-error [msg] (Result.Error (LLMError.Decode msg)))
 
 (defn llm-api-error [code typ msg] (Result.Error (LLMError.Api code typ msg)))
 
@@ -1503,26 +1528,6 @@ array of content parts (OpenAI format).")
 (defn llm-retries-left? [policy attempt]
   (< attempt @(RetryPolicy.max-attempts policy)))
 
-; Prose owned by http-client, uri and OpenSSL; carpentry-org/http-client#24
-; would replace it. Every entry is a failure that arrived as an answer we could
-; not use, so re-sending cannot change it. A connection that died mid-flight is
-; deliberately absent: `incomplete HTTP headers` is http-client's string for a
-; peer that hung up before the header terminator, which is the most ordinary
-; transient failure there is, and treating it as permanent would also split it
-; from `read error`, the same reset a few bytes later, which stays retryable.
-(def llm-permanent-errors
-  [@"Invalid URI"
-   @"missing host in URL"
-   @"redirect without Location header"
-   @"redirect with empty Location header"
-   @"too many redirects"
-   @"Malformed response"])
-
-(defn llm-permanent-transport-error? [e]
-  (or
-    (Array.any? &(fn [p] (llm-byte-starts-with? e p)) &llm-permanent-errors)
-    (String.contains-string? e "certificate verify failed")))
-
 (defmodule RetryPolicy
   (doc retryable? "checks whether an `LLMError` deserves another attempt under
 `p`. Transport failures do, unless they are a failure another attempt cannot
@@ -1533,23 +1538,16 @@ decide before an error exists, from the response status, and so reach for
 `retryable-status?` directly.")
   (defn retryable? [p e]
     (match-ref e
-      (LLMError.Transport msg) (not (llm-permanent-transport-error? msg))
+      (LLMError.Transport ce) (ClientError.retryable? ce)
+      (LLMError.Config _) false
+      (LLMError.Decode _) false
       (LLMError.Api code _ _) (retryable-status? p code))))
-
-(defn llm-drain-stream [rs]
-  (let-do [sb (StringBuf.create)
-           drain-done false]
-    (while (not drain-done)
-      (match (ResponseStream.poll rs)
-        (Maybe.Nothing) (set! drain-done true)
-        (Maybe.Just chunk) (StringBuf.append-str &sb &chunk)))
-    (let-do [body (StringBuf.to-string &sb)] (StringBuf.delete sb) body)))
 
 (defn llm-stream-outcome [provider rs]
   (if (Response.ok? (ResponseStream.parsed-response &rs))
     (Result.Success rs)
     (let-do [sc @(ResponseStream.status-code &rs)
-             err-body (llm-drain-stream &rs)]
+             err-body (Result.from-success (Client.drain-stream &rs) @"")]
       (ResponseStream.close rs)
       (llm-parse-error provider sc &err-body))))
 
@@ -1579,7 +1577,7 @@ decide before an error exists, from the response status, and so reach for
           (Maybe.Nothing))
         (Maybe.Just (llm-stream-outcome provider rs)))
     (Result.Error e)
-      (if (llm-permanent-transport-error? &e)
+      (if (not (ClientError.retryable? &e))
         (Maybe.Just (llm-transport-error e))
         (do (llm-sleep-ms (llm-backoff-delay policy attempt)) (Maybe.Nothing)))))
 
@@ -1596,9 +1594,11 @@ decide before an error exists, from the response status, and so reach for
 (defn llm-send-with-retry [policy provider config url body]
   (match (llm-stream-with-retry policy provider config url body)
     (Result.Success rs)
-      (let-do [decoded (llm-drain-stream &rs)]
+      (let-do [decoded (Client.drain-stream &rs)]
         (ResponseStream.close rs)
-        (Result.Success decoded))
+        (match decoded
+          (Result.Success drained) (Result.Success drained)
+          (Result.Error e) (llm-transport-error e)))
     (Result.Error e) (Result.Error e)))
 
 (doc LLM "is a multi-provider LLM client supporting Anthropic, OpenAI, Ollama,
@@ -1715,7 +1715,7 @@ schema. The schema is a JSON value (use the `JSON` constructors).")
   (defn chat-with-retry [config req policy]
     (let [name (ProviderConfig.name config)]
       (if (not (llm-known-provider? name))
-        (llm-transport-error (String.concat &[@"unknown provider: " @name]))
+        (llm-config-error (String.concat &[@"unknown provider: " @name]))
         (let [base (ProviderConfig.base-url config)
               body (llm-build-body name req)
               path (llm-endpoint-path name config req)
@@ -1724,7 +1724,7 @@ schema. The schema is a JSON value (use the `JSON` constructors).")
             (Result.Success resp-body)
               (match (llm-parse-success name &resp-body)
                 (Result.Success r) (Result.Success r)
-                (Result.Error e) (llm-transport-error e))
+                (Result.Error e) (llm-decode-error e))
             (Result.Error e) (Result.Error e))))))
 
   (doc chat "sends a chat request to the configured provider.
@@ -1939,7 +1939,7 @@ for the return value.")
   (defn chat-stream-with-retry [config req policy]
     (let [name (ProviderConfig.name config)]
       (if (not (llm-known-provider? name))
-        (llm-transport-error (String.concat &[@"unknown provider: " @name]))
+        (llm-config-error (String.concat &[@"unknown provider: " @name]))
         (let [base (ProviderConfig.base-url config)
               body (llm-build-stream-body name req)
               path (llm-stream-endpoint-path name config req)
@@ -1993,7 +1993,7 @@ the loop as a whole. See `chat-loop` for the arguments and the return value.")
                               policy]
     (let-do [msgs messages
              result (the (Result LLMResponse LLMError)
-                         (Result.Error (LLMError.Transport @"")))
+                         (Result.Error (LLMError.Config @"")))
              done false
              i 0]
       (while (not done)
@@ -2216,7 +2216,7 @@ according to `policy`. See `embed` for the return value.")
   (defn embed-with-retry [config req policy]
     (let [name (ProviderConfig.name config)]
       (if (not (llm-embedding-provider? name))
-        (llm-transport-error
+        (llm-config-error
           (String.concat &[@name @" does not support embeddings"]))
         (let [base (ProviderConfig.base-url config)
               body (llm-build-embedding-body name req)
@@ -2226,7 +2226,7 @@ according to `policy`. See `embed` for the return value.")
             (Result.Success resp-body)
               (match (llm-parse-embedding-success name &resp-body)
                 (Result.Success r) (Result.Success r)
-                (Result.Error e) (llm-transport-error e))
+                (Result.Error e) (llm-decode-error e))
             (Result.Error e) (Result.Error e))))))
 
   (doc embed "sends an embedding request to the configured provider.

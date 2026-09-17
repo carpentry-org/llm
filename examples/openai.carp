@@ -16,4 +16,4 @@
                   256 0.7)]
         (match (LLM.chat &config &req)
           (Result.Success r) (println* (LLMResponse.content &r))
-          (Result.Error e) (IO.errorln &e)))))
+          (Result.Error e) (IO.errorln &(LLMError.str &e))))))

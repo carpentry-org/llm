@@ -21,4 +21,4 @@
                                         @" in, "
                                         @&(Int.str @(LLMResponse.output-tokens &r))
                                         @" out)"])))
-      (Result.Error e) (IO.errorln &e))))
+      (Result.Error e) (IO.errorln &(LLMError.str &e)))))
