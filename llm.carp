@@ -1073,26 +1073,31 @@ array of content parts (OpenAI format).")
   (defn parse-stream-event [line]
     (match (JSON.parse line)
       (Result.Success j)
-        (match (JSON.get &j "done")
-          (Maybe.Just d)
-            (if (Maybe.from (JSON.as-bool &d) false)
-              (let [tcs (match (JSON.get &j "message")
-                      (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
-                      _ [])]
-                (Array.push-back
+        (let [thinking (llm-json-str &j &[@"message" @"thinking"])
+              content (llm-json-str &j &[@"message" @"content"])
+              calls (match (JSON.get &j "message")
+                (Maybe.Just msg) (llm-parse-openai-tool-calls &msg)
+                _ [])
+              text (Array.concat
+                &[(if (String.empty? &thinking)
+                    []
+                    [(StreamChunk.ChunkText (String.concat &[(soh-prefix)
+                                                             thinking]))])
+                  (if (String.empty? &content)
+                    []
+                    [(StreamChunk.ChunkText content)])])
+              chunks (Array.concat
+                &[text
                   (Array.copy-map
                     &(fn [tc] (StreamChunk.ChunkToolFull @tc))
-                    &tcs)
-                  (StreamChunk.ChunkDone)))
-              (let [tok (llm-json-str &j &[@"message" @"content"])]
-                (if (> (String.length &tok) 0)
-                  [(StreamChunk.ChunkText tok)]
-                  (let [think (llm-json-str &j &[@"message" @"thinking"])]
-                    (if (> (String.length &think) 0)
-                      [(StreamChunk.ChunkText (String.concat &[(soh-prefix)
-                                                               think]))]
-                      [(StreamChunk.ChunkSkip)])))))
-          _ [(StreamChunk.ChunkSkip)])
+                    &calls)])
+              done (match (JSON.get &j "done")
+                (Maybe.Just d) (Maybe.from (JSON.as-bool &d) false)
+                _ false)]
+          (cond
+            done (Array.push-back chunks (StreamChunk.ChunkDone))
+            (Array.empty? &chunks) [(StreamChunk.ChunkSkip)]
+            chunks))
       _ [(StreamChunk.ChunkSkip)])))
 
 (defn gemini-message-to-json [m]

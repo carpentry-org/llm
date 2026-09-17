@@ -1924,6 +1924,64 @@
     "Ollama parse-stream-event returns all tool calls from done message")
 
   (assert-true test
+    (let [chunks (Ollama.parse-stream-event
+            "{\"message\":{\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"generate_image\",\"arguments\":{\"prompt\":\"a realistic horse\"}}}]},\"done\":false}")]
+      (and (= (Array.length &chunks) 1)
+           (match @(Array.unsafe-nth &chunks 0)
+             (StreamChunk.ChunkToolFull tc)
+               (and (= (ToolCall.id &tc) "call_1")
+                    (and (= (ToolCall.name &tc) "generate_image")
+                         (= (ToolCall.arguments &tc)
+                            "{\"prompt\":\"a realistic horse\"}")))
+             _ false)))
+    "Ollama keeps tool calls from non-final streaming chunks")
+
+  (assert-true test
+    (let [chunks (Ollama.parse-stream-event
+            "{\"message\":{\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"generate_image\",\"arguments\":{\"prompt\":\"a realistic horse\"}}},{\"id\":\"call_2\",\"function\":{\"name\":\"get_time\",\"arguments\":{}}}]},\"done\":false}")]
+      (and (= (Array.length &chunks) 2)
+           (and
+             (match @(Array.unsafe-nth &chunks 0)
+               (StreamChunk.ChunkToolFull tc)
+                 (= (ToolCall.name &tc) "generate_image")
+               _ false)
+             (match @(Array.unsafe-nth &chunks 1)
+               (StreamChunk.ChunkToolFull tc) (= (ToolCall.name &tc) "get_time")
+               _ false))))
+    "Ollama keeps parallel tool calls from non-final chunks")
+
+  (assert-true test
+    (let [chunks (Ollama.parse-stream-event
+            "{\"message\":{\"content\":\"Finished.\"},\"done\":true}")]
+      (and (= (Array.length &chunks) 2)
+           (and
+             (match @(Array.unsafe-nth &chunks 0)
+               (StreamChunk.ChunkText text) (= &text "Finished.")
+               _ false)
+             (match @(Array.unsafe-nth &chunks 1)
+               (StreamChunk.ChunkDone) true
+               _ false))))
+    "Ollama keeps final-chunk text before its completion marker")
+
+  (assert-true test
+    (let-do [s (make-test-llm-stream "ollama"
+                                     @"{\"message\":{\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"generate_image\",\"arguments\":{\"prompt\":\"a realistic horse\"}}}]},\"done\":false}
+{\"done\": true}
+")
+             first (LlmStream.poll-event &s)
+             end (LlmStream.poll-event &s)
+             completed @(LlmStream.stream-done &s)]
+      (LlmStream.close s)
+      (and completed
+           (and (Maybe.nothing? &end)
+                (match first
+                  (Maybe.Just (StreamEvent.ToolCallEvent tc))
+                    (and (= (ToolCall.id &tc) "call_1")
+                         (= (ToolCall.name &tc) "generate_image"))
+                  _ false))))
+    "poll-event keeps a non-final Ollama tool call and records the final marker")
+
+  (assert-true test
     (let [line "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}},{\"functionCall\":{\"name\":\"get_time\",\"args\":{\"tz\":\"CET\"}}}]}}]}"
           chunks (Gemini.parse-stream-event line)]
       (and (= (Array.length &chunks) 2)
