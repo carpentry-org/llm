@@ -5,7 +5,7 @@
 
 (defn cr [] (String.from-chars &[\return]))
 
-(defn epoch [] (Datetime.from-unix-timestamp 0))
+(defn epoch [] (Datetime.from-unix-timestamp 0l))
 
 (defn west-of-utc-now []
   (Datetime.init 2026
@@ -2875,6 +2875,13 @@ data: {\"type\":\"message_stop\"}
                                         &(Datetime.now))
       -1)
     "parse-retry-after floors a date in the past at zero")
+
+  (assert-equal test
+    Int.MAX
+    (Maybe.from
+      (RetryPolicy.parse-retry-after-at "Fri, 31 Dec 9999 23:59:59 GMT" &(epoch))
+      -1)
+    "parse-retry-after saturates a date more than Int.MAX seconds ahead")
 
   (assert-equal test
     3000

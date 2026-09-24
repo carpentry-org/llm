@@ -1,4 +1,4 @@
-(load "git@github.com:carpentry-org/http-client@0.7.0")
+(load "git@github.com:carpentry-org/http-client@0.8.0")
 (load "git@github.com:carpentry-org/json@0.6.0")
 
 (doc Role "is the role of a chat message. `System` for instructions, `User`
@@ -267,20 +267,11 @@ caller for arbitrarily long.")
         (Maybe.Just (if (> l (Long.from-int Int.MAX)) Int.MAX (Long.to-int l)))
       (Maybe.Nothing) (Maybe.Nothing)))
 
-  (private MAX-WAIT-DAYS)
-  (hidden MAX-WAIT-DAYS)
-  (def MAX-WAIT-DAYS (/ (- Int.MAX 86399) 86400))
-
   (private seconds-until)
   (hidden seconds-until)
   (defn seconds-until [d now]
-    (let [ud (Datetime.to-utc d)
-          un (Datetime.to-utc now)]
-      (if (>
-          (- (Datetime.to-ordinal &ud) (Datetime.to-ordinal &un))
-          MAX-WAIT-DAYS)
-        Int.MAX
-        (max 0 (Datetime.diff &ud &un)))))
+    (let [s (Datetime.diff &(Datetime.to-utc d) &(Datetime.to-utc now))]
+      (cond (< s 0l) 0 (> s (Long.from-int Int.MAX)) Int.MAX (Long.to-int s))))
 
   (doc parse-retry-after-at "parses a `Retry-After` header value as of `now`,
 returning the number of seconds to wait.
