@@ -61,7 +61,10 @@
                   @""
                   @""
                   []
-                  false))
+                  false
+                  @""
+                  0
+                  0))
 
 (defn drained-body [payload]
   (let-do [rs (make-test-response-stream payload false)
@@ -79,12 +82,20 @@
     (String.concat &[@"thought:" (String.byte-slice t 1 (String.length t))])
     (String.concat &[@"text:" @t])))
 
-(defn drain-events [provider linebuf]
-  (let-do [s (make-test-llm-stream provider linebuf)
-           out (the (Array String) [])
+(defn render-meta [s]
+  (String.concat
+    &[@"stop:"
+      @(LlmStream.stop-reason s)
+      @" in:"
+      (Int.str @(LlmStream.input-tokens s))
+      @" out:"
+      (Int.str @(LlmStream.output-tokens s))]))
+
+(defn poll-events [s]
+  (let-do [out (the (Array String) [])
            go true]
     (while go
-      (match (LlmStream.poll-event &s)
+      (match (LlmStream.poll-event s)
         (Maybe.Nothing) (set! go false)
         (Maybe.Just evt)
           (set! out
@@ -97,19 +108,158 @@
                                          @(ToolCall.name tc)
                                          @":"
                                          @(ToolCall.arguments tc)]))))))
+    out))
+
+(defn poll-tokens [s]
+  (let-do [out (the (Array String) [])
+           go true]
+    (while go
+      (match (LlmStream.poll s)
+        (Maybe.Nothing) (set! go false)
+        (Maybe.Just tok) (set! out (Array.push-back out (render-token &tok)))))
+    out))
+
+(defn drain-events [provider linebuf]
+  (let-do [s (make-test-llm-stream provider linebuf)
+           out (poll-events &s)]
     (LlmStream.close s)
     out))
 
 (defn drain-tokens [provider linebuf]
   (let-do [s (make-test-llm-stream provider linebuf)
-           out (the (Array String) [])
-           go true]
-    (while go
-      (match (LlmStream.poll &s)
-        (Maybe.Nothing) (set! go false)
-        (Maybe.Just tok) (set! out (Array.push-back out (render-token &tok)))))
+           out (poll-tokens &s)]
     (LlmStream.close s)
     out))
+
+(defn drain-events-meta [provider linebuf]
+  (let-do [s (make-test-llm-stream provider linebuf)
+           out (Array.push-back (poll-events &s) (render-meta &s))]
+    (LlmStream.close s)
+    out))
+
+(defn drain-tokens-meta [provider linebuf]
+  (let-do [s (make-test-llm-stream provider linebuf)
+           out (Array.push-back (poll-tokens &s) (render-meta &s))]
+    (LlmStream.close s)
+    out))
+
+(defn openai-text-wire []
+  @"data: {\"id\":\"chatcmpl-AzI6sqA1\",\"object\":\"chat.completion.chunk\",\"created\":1739185110,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"refusal\":null},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}
+
+data: {\"id\":\"chatcmpl-AzI6sqA1\",\"object\":\"chat.completion.chunk\",\"created\":1739185110,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}
+
+data: {\"id\":\"chatcmpl-AzI6sqA1\",\"object\":\"chat.completion.chunk\",\"created\":1739185110,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" there\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}
+
+data: {\"id\":\"chatcmpl-AzI6sqA1\",\"object\":\"chat.completion.chunk\",\"created\":1739185110,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{},\"logprobs\":null,\"finish_reason\":\"length\"}],\"usage\":null}
+
+data: {\"id\":\"chatcmpl-AzI6sqA1\",\"object\":\"chat.completion.chunk\",\"created\":1739185110,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":2,\"total_tokens\":11,\"prompt_tokens_details\":{\"cached_tokens\":0,\"audio_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":0,\"audio_tokens\":0,\"accepted_prediction_tokens\":0,\"rejected_prediction_tokens\":0}}}
+
+data: [DONE]
+
+")
+
+(defn openai-cut-off-wire []
+  @"data: {\"id\":\"chatcmpl-AzI6sqA1\",\"object\":\"chat.completion.chunk\",\"created\":1739185110,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"refusal\":null},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}
+
+data: {\"id\":\"chatcmpl-AzI6sqA1\",\"object\":\"chat.completion.chunk\",\"created\":1739185110,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}
+
+")
+
+(defn openai-tool-wire []
+  @"data: {\"id\":\"chatcmpl-AzI7xQ2b\",\"object\":\"chat.completion.chunk\",\"created\":1739185177,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"index\":0,\"id\":\"call_Nh4zDq3a\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}],\"refusal\":null},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}
+
+data: {\"id\":\"chatcmpl-AzI7xQ2b\",\"object\":\"chat.completion.chunk\",\"created\":1739185177,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{}\"}}]},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}
+
+data: {\"id\":\"chatcmpl-AzI7xQ2b\",\"object\":\"chat.completion.chunk\",\"created\":1739185177,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"delta\":{},\"logprobs\":null,\"finish_reason\":\"tool_calls\"}],\"usage\":null}
+
+data: {\"id\":\"chatcmpl-AzI7xQ2b\",\"object\":\"chat.completion.chunk\",\"created\":1739185177,\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[],\"usage\":{\"prompt_tokens\":67,\"completion_tokens\":14,\"total_tokens\":81}}
+
+data: [DONE]
+
+")
+
+(defn anthropic-text-wire [] @"event: message_start
+data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01XFDUDYJgAACzvnptvVoYEL\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-20250514\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":25,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":1}}}
+
+event: content_block_start
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}
+
+event: ping
+data: {\"type\": \"ping\"}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"!\"}}
+
+event: content_block_stop
+data: {\"type\":\"content_block_stop\",\"index\":0}
+
+event: message_delta
+data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":6}}
+
+event: message_stop
+data: {\"type\":\"message_stop\"}
+
+")
+
+(defn anthropic-tool-wire [] @"event: message_start
+data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_014p7gG3wDgGV9EUtLvnow3U\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-20250514\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":472,\"output_tokens\":2},\"content\":[],\"stop_reason\":null}}
+
+event: content_block_start
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Checking.\"}}
+
+event: content_block_stop
+data: {\"type\":\"content_block_stop\",\"index\":0}
+
+event: content_block_start
+data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01T1x1fJ34qAmk2tNTrN7Up6\",\"name\":\"get_weather\",\"input\":{}}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{}\"}}
+
+event: content_block_stop
+data: {\"type\":\"content_block_stop\",\"index\":1}
+
+event: message_delta
+data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":89}}
+
+event: message_stop
+data: {\"type\":\"message_stop\"}
+
+")
+
+(defn ollama-text-wire []
+  @"{\"model\":\"llama3.2\",\"created_at\":\"2025-01-28T19:22:45.181462Z\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"done\":false}
+{\"model\":\"llama3.2\",\"created_at\":\"2025-01-28T19:22:45.207718Z\",\"message\":{\"role\":\"assistant\",\"content\":\" there\"},\"done\":false}
+{\"model\":\"llama3.2\",\"created_at\":\"2025-01-28T19:22:45.236393Z\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done_reason\":\"stop\",\"done\":true,\"total_duration\":4883583458,\"load_duration\":1334875,\"prompt_eval_count\":26,\"prompt_eval_duration\":342546000,\"eval_count\":3,\"eval_duration\":4535599000}
+")
+
+(defn ollama-tool-wire []
+  @"{\"model\":\"qwen3\",\"created_at\":\"2025-05-29T09:43:12.48Z\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"get_weather\",\"arguments\":{}}}]},\"done\":false}
+{\"model\":\"qwen3\",\"created_at\":\"2025-05-29T09:43:12.73Z\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done_reason\":\"stop\",\"done\":true,\"total_duration\":1830473042,\"load_duration\":28468417,\"prompt_eval_count\":180,\"prompt_eval_duration\":180813583,\"eval_count\":23,\"eval_duration\":1618652583}
+")
+
+(defn gemini-text-wire []
+  @"data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Hello\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8,\"candidatesTokenCount\": 1,\"totalTokenCount\": 9},\"modelVersion\": \"gemini-2.0-flash\",\"responseId\": \"x1a2b3\"}
+
+data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" there\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8,\"candidatesTokenCount\": 2,\"totalTokenCount\": 10},\"modelVersion\": \"gemini-2.0-flash\",\"responseId\": \"x1a2b3\"}
+
+data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"!\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8,\"candidatesTokenCount\": 3,\"totalTokenCount\": 11,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8}],\"candidatesTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3}]},\"modelVersion\": \"gemini-2.0-flash\",\"responseId\": \"x1a2b3\"}
+
+")
+
+(defn gemini-tool-wire []
+  @"data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"get_weather\",\"args\": {}}}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 51,\"candidatesTokenCount\": 5,\"totalTokenCount\": 56},\"modelVersion\": \"gemini-2.0-flash\",\"responseId\": \"y4c5d6\"}
+
+")
 
 (deftest test
   (assert-equal test
@@ -1812,6 +1962,25 @@
     "OpenAI streaming request includes tools")
 
   (assert-true test
+    (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+          body (OpenAI.build-stream-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j)
+          (match (JSON.get-in &j &[@"stream_options" @"include_usage"])
+            (Maybe.Just v) (Maybe.from (JSON.as-bool &v) false)
+            _ false)
+        _ false))
+    "OpenAI streaming request asks for usage")
+
+  (assert-true test
+    (let [req (LLM.chat-request "gpt-4" [(Message.user "hi")] 100 0.5)
+          body (OpenAI.build-request &req)]
+      (match (JSON.parse &body)
+        (Result.Success j) (Maybe.nothing? &(JSON.get &j "stream_options"))
+        _ false))
+    "OpenAI non-streaming request has no stream_options")
+
+  (assert-true test
     (let [tools [(ToolDef.init @"f"
                                @"desc"
                                (JSON.obj
@@ -2741,6 +2910,112 @@ data: {\"type\":\"message_stop\"}
                    @"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"THINKING\",\"thought\":true}]}}]}
 ")
     "poll tags an all-thought Gemini chunk with the SOH prefix")
+
+  (assert-equal test
+    &[@"text:Hello" @"text: there" @"stop:length in:9 out:2"]
+    &(drain-events-meta "openai" (openai-text-wire))
+    "poll-event reports OpenAI's finish_reason and usage")
+
+  (assert-equal test
+    &[@"text:Hello" @"text: there" @"stop:length in:9 out:2"]
+    &(drain-tokens-meta "openai" (openai-text-wire))
+    "poll reports OpenAI's finish_reason and usage")
+
+  (assert-equal test
+    &[@"tool:get_weather:{}" @"stop:tool_calls in:67 out:14"]
+    &(drain-events-meta "openai" (openai-tool-wire))
+    "poll-event reports an OpenAI tool_calls stop")
+
+  (assert-equal test
+    &[@"stop:tool_calls in:67 out:14"]
+    &(drain-tokens-meta "openai" (openai-tool-wire))
+    "poll reports an OpenAI tool_calls stop")
+
+  (assert-equal test
+    &[@"text:Hello" @"stop: in:0 out:0"]
+    &(drain-events-meta "openai" (openai-cut-off-wire))
+    "poll-event leaves the stop reason and counts empty on a cut-off stream")
+
+  (assert-equal test
+    &[@"text:Hello" @"stop: in:0 out:0"]
+    &(drain-tokens-meta "openai" (openai-cut-off-wire))
+    "poll leaves the stop reason and counts empty on a cut-off stream")
+
+  (assert-equal test
+    &[@"text:Hello" @"text:!" @"stop:end_turn in:25 out:6"]
+    &(drain-events-meta "anthropic" (anthropic-text-wire))
+    "poll-event reports Anthropic's stop_reason and usage")
+
+  (assert-equal test
+    &[@"text:Hello" @"text:!" @"stop:end_turn in:25 out:6"]
+    &(drain-tokens-meta "anthropic" (anthropic-text-wire))
+    "poll reports Anthropic's stop_reason and usage")
+
+  (assert-equal test
+    &[@"text:Checking." @"tool:get_weather:{}" @"stop:tool_use in:472 out:89"]
+    &(drain-events-meta "anthropic" (anthropic-tool-wire))
+    "poll-event reports an Anthropic tool_use stop")
+
+  (assert-equal test
+    &[@"text:Checking." @"stop:tool_use in:472 out:89"]
+    &(drain-tokens-meta "anthropic" (anthropic-tool-wire))
+    "poll reports an Anthropic tool_use stop")
+
+  (assert-equal test
+    &[@"stop:end_turn in:10682 out:510"]
+    &(drain-events-meta "anthropic"
+                        @"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":2679,\"output_tokens\":3}}}
+data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"input_tokens\":10682,\"output_tokens\":510}}
+data: {\"type\":\"message_stop\"}
+")
+    "poll-event takes Anthropic's input count from message_delta when it sends one")
+
+  (assert-equal test
+    &[@"text:Hello" @"text: there" @"stop:stop in:26 out:3"]
+    &(drain-events-meta "ollama" (ollama-text-wire))
+    "poll-event reports Ollama's done_reason and eval counts")
+
+  (assert-equal test
+    &[@"text:Hello" @"text: there" @"stop:stop in:26 out:3"]
+    &(drain-tokens-meta "ollama" (ollama-text-wire))
+    "poll reports Ollama's done_reason and eval counts")
+
+  (assert-equal test
+    &[@"tool:get_weather:{}" @"stop:stop in:180 out:23"]
+    &(drain-events-meta "ollama" (ollama-tool-wire))
+    "poll-event reports the stop of an Ollama tool-call stream")
+
+  (assert-equal test
+    &[@"stop:stop in:180 out:23"]
+    &(drain-tokens-meta "ollama" (ollama-tool-wire))
+    "poll reports the stop of an Ollama tool-call stream")
+
+  (assert-equal test
+    &[@"text:Hello" @"stop: in:0 out:0"]
+    &(drain-events-meta "ollama"
+                        @"{\"model\":\"llama3.2\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"done\":false}
+")
+    "poll-event leaves the counts empty on an Ollama stream cut off before done")
+
+  (assert-equal test
+    &[@"text:Hello" @"text: there" @"text:!" @"stop:STOP in:8 out:3"]
+    &(drain-events-meta "gemini" (gemini-text-wire))
+    "poll-event reports Gemini's finishReason and last usageMetadata")
+
+  (assert-equal test
+    &[@"text:Hello" @"text: there" @"text:!" @"stop:STOP in:8 out:3"]
+    &(drain-tokens-meta "gemini" (gemini-text-wire))
+    "poll reports Gemini's finishReason and last usageMetadata")
+
+  (assert-equal test
+    &[@"tool:get_weather:{}" @"stop:STOP in:51 out:5"]
+    &(drain-events-meta "gemini" (gemini-tool-wire))
+    "poll-event reports the stop of a Gemini functionCall stream")
+
+  (assert-equal test
+    &[@"stop:STOP in:51 out:5"]
+    &(drain-tokens-meta "gemini" (gemini-tool-wire))
+    "poll reports the stop of a Gemini functionCall stream")
 
   (assert-equal test
     1
