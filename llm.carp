@@ -179,6 +179,12 @@ Use `LlmStream.poll-event` to receive these events. Returns
   (ChunkDone [])
   (ChunkSkip []))
 
+; Internal: the stop reason and token counts a single line reports, if any.
+(deftype StreamMeta
+  [stop-reason (Maybe String)
+   input-tokens (Maybe Int)
+   output-tokens (Maybe Int)])
+
 (doc ProviderConfig "configuration for an LLM provider.
 
 Build with `LLM.anthropic`, `LLM.openai`, `LLM.ollama`, or `LLM.gemini`
@@ -578,6 +584,17 @@ array of content parts (OpenAI format).")
     (Maybe.Just v) (Maybe.from (JSON.as-str &v) @"")
     _ @""))
 
+(defn llm-json-maybe-int [j keys]
+  (match (JSON.get-in j keys)
+    (Maybe.Just v)
+      (match (JSON.as-num &v)
+        (Maybe.Just n) (Maybe.Just (Double.to-int n))
+        _ (Maybe.Nothing))
+    _ (Maybe.Nothing)))
+
+(defn llm-json-maybe-str [j keys]
+  (match (JSON.get-in j keys) (Maybe.Just v) (JSON.as-str &v) _ (Maybe.Nothing)))
+
 (defn llm-byte-starts-with? [s sub]
   (let [n (String.length sub)]
     (and (>= (String.length s) n) (= sub &(String.byte-slice s 0 n)))))
@@ -587,6 +604,11 @@ array of content parts (OpenAI format).")
     (let [start (if (llm-byte-starts-with? line "data: ") 6 5)]
       (Maybe.Just (String.byte-slice line start (String.length line))))
     (Maybe.Nothing)))
+
+(defn llm-sse-json [line]
+  (match (llm-sse-data line)
+    (Maybe.Just s) (Result.from-success (JSON.parse &s) (JSON.Null))
+    _ (JSON.Null)))
 
 (defmodule OpenAI
   (hidden add-format)
@@ -627,7 +649,12 @@ array of content parts (OpenAI format).")
                 (JSON.entry @"temperature"
                             (JSON.Num @(LLMRequest.temperature req)))]
           with-stream (if stream?
-            (Array.push-back base (JSON.entry @"stream" (JSON.Bool true)))
+            (Array.concat
+              &[base
+                [(JSON.entry @"stream" (JSON.Bool true))
+                 (JSON.entry @"stream_options"
+                             (JSON.obj
+                               [(JSON.entry @"include_usage" (JSON.Bool true))]))]])
             base)
           with-tools (if (> (Array.length (LLMRequest.tools req)) 0)
             (Array.push-back with-stream
@@ -776,7 +803,14 @@ array of content parts (OpenAI format).")
                     _ [(StreamChunk.ChunkSkip)])
                 _ [(StreamChunk.ChunkSkip)])
             _ [(StreamChunk.ChunkSkip)]))
-      _ [(StreamChunk.ChunkSkip)])))
+      _ [(StreamChunk.ChunkSkip)]))
+
+  (defn parse-stream-meta [line]
+    (let [j (llm-sse-json line)]
+      (StreamMeta.init
+        (llm-json-maybe-str &j &[@"choices" @"0" @"finish_reason"])
+        (llm-json-maybe-int &j &[@"usage" @"prompt_tokens"])
+        (llm-json-maybe-int &j &[@"usage" @"completion_tokens"])))))
 
 (defmodule Anthropic
   (hidden system-text)
@@ -975,7 +1009,17 @@ array of content parts (OpenAI format).")
                 (= &type-str "message_stop") [(StreamChunk.ChunkDone)]
                 [(StreamChunk.ChunkSkip)]))
           _ [(StreamChunk.ChunkSkip)])
-      _ [(StreamChunk.ChunkSkip)])))
+      _ [(StreamChunk.ChunkSkip)]))
+
+  (defn parse-stream-meta [line]
+    (let [j (llm-sse-json line)
+          usage (match (JSON.get-in &j &[@"message" @"usage"])
+            (Maybe.Just u) u
+            _ (Maybe.from (JSON.get &j "usage") (JSON.Null)))]
+      (StreamMeta.init
+        (llm-json-maybe-str &j &[@"delta" @"stop_reason"])
+        (llm-json-maybe-int &usage &[@"input_tokens"])
+        (llm-json-maybe-int &usage &[@"output_tokens"])))))
 
 (defmodule Ollama
   (hidden body)
@@ -1114,7 +1158,14 @@ array of content parts (OpenAI format).")
             done (Array.push-back chunks (StreamChunk.ChunkDone))
             (Array.empty? &chunks) [(StreamChunk.ChunkSkip)]
             chunks))
-      _ [(StreamChunk.ChunkSkip)])))
+      _ [(StreamChunk.ChunkSkip)]))
+
+  (defn parse-stream-meta [line]
+    (let [j (Result.from-success (JSON.parse line) (JSON.Null))]
+      (StreamMeta.init
+        (llm-json-maybe-str &j &[@"done_reason"])
+        (llm-json-maybe-int &j &[@"prompt_eval_count"])
+        (llm-json-maybe-int &j &[@"eval_count"])))))
 
 (defn gemini-message-to-json [m]
   (match-ref (Message.role m)
@@ -1441,7 +1492,14 @@ array of content parts (OpenAI format).")
                   _ [(StreamChunk.ChunkSkip)])
               _ [(StreamChunk.ChunkSkip)])
           _ [(StreamChunk.ChunkSkip)])
-      _ [(StreamChunk.ChunkSkip)])))
+      _ [(StreamChunk.ChunkSkip)]))
+
+  (defn parse-stream-meta [line]
+    (let [j (llm-sse-json line)]
+      (StreamMeta.init
+        (llm-json-maybe-str &j &[@"candidates" @"0" @"finishReason"])
+        (llm-json-maybe-int &j &[@"usageMetadata" @"promptTokenCount"])
+        (llm-json-maybe-int &j &[@"usageMetadata" @"candidatesTokenCount"])))))
 
 (defn llm-known-provider? [name]
   (or (= name "openai")
@@ -1732,6 +1790,10 @@ response. Wraps a `ResponseStream` and parses provider-specific streaming
 formats. Use `poll` for text-only streaming or `poll-event` for streaming
 with tool call support.
 
+`stop-reason`, `input-tokens` and `output-tokens` hold what `LLMResponse`
+would, filled in as the provider reports them; until then, or if the stream is
+cut off first, they are `\"\"` and `0`.
+
 ```
 (match (LLM.chat-stream &config &req)
   (Result.Success stream)
@@ -1756,7 +1818,10 @@ with tool call support.
    tc-name String
    tc-args String
    pending (Array StreamEvent)
-   stream-done Bool])
+   stream-done Bool
+   stop-reason String
+   input-tokens Int
+   output-tokens Int])
 
 (defn llm-stream-extract-line [s]
   (let [buf (LlmStream.linebuf s)
@@ -1791,6 +1856,26 @@ with tool call support.
     (= provider "anthropic") (Anthropic.parse-stream-event line)
     (= provider "gemini") (Gemini.parse-stream-event line)
     [(StreamChunk.ChunkSkip)]))
+
+(defn llm-stream-parse-meta [provider line]
+  (cond
+    (= provider "ollama") (Ollama.parse-stream-meta line)
+    (= provider "openai") (OpenAI.parse-stream-meta line)
+    (= provider "anthropic") (Anthropic.parse-stream-meta line)
+    (= provider "gemini") (Gemini.parse-stream-meta line)
+    (StreamMeta.init (Maybe.Nothing) (Maybe.Nothing) (Maybe.Nothing))))
+
+(defn llm-stream-record-meta [s line]
+  (let-do [m (llm-stream-parse-meta (LlmStream.provider s) line)]
+    (match-ref (StreamMeta.stop-reason &m)
+      (Maybe.Just r) (LlmStream.set-stop-reason! s @r)
+      _ ())
+    (match-ref (StreamMeta.input-tokens &m)
+      (Maybe.Just n) (LlmStream.set-input-tokens! s @n)
+      _ ())
+    (match-ref (StreamMeta.output-tokens &m)
+      (Maybe.Just n) (LlmStream.set-output-tokens! s @n)
+      _ ())))
 
 (defn llm-enqueue-event [s evt]
   (LlmStream.set-pending! s (Array.push-back @(LlmStream.pending s) evt)))
@@ -1830,7 +1915,8 @@ Use `poll-event` to keep reasoning and answer text apart.")
         (match (llm-stream-extract-line s)
           (Maybe.Just line)
             (let [trimmed (String.trim &line)]
-              (when (> (String.length &trimmed) 0)
+              (when-do (> (String.length &trimmed) 0)
+                (llm-stream-record-meta s &trimmed)
                 (match (llm-stream-parse-line (provider s) &trimmed)
                   (Maybe.Just tok) (set! result (Maybe.Just tok))
                   (Maybe.Nothing) ())))
@@ -1855,6 +1941,9 @@ event per part rather than only the first.
 Gemini does not provide tool call IDs, so `ToolCall` values from Gemini
 streams will have an empty string as their ID.
 
+Once it returns `Nothing`, `stop-reason`, `input-tokens` and `output-tokens`
+say why the response ended and what it cost.
+
 ```
 (while-do true
   (match (LlmStream.poll-event &stream)
@@ -1878,6 +1967,7 @@ streams will have an empty string as their ID.
             (let [trimmed (String.trim &line)]
               (when (> (String.length &trimmed) 0)
                 (let-do [chunks (llm-stream-parse-event (provider s) &trimmed)]
+                  (llm-stream-record-meta s &trimmed)
                   (for [ci 0 (Array.length &chunks)]
                     (match-ref (Array.unsafe-nth &chunks ci)
                       (StreamChunk.ChunkText tok)
@@ -1937,7 +2027,8 @@ for the return value.")
               url (String.concat &[@base path])]
           (match (llm-stream-with-retry policy name config &url &body)
             (Result.Success rs)
-              (Result.Success (LlmStream.init rs @"" @name @"" @"" @"" [] false))
+              (Result.Success
+                (LlmStream.init rs @"" @name @"" @"" @"" [] false @"" 0 0))
             (Result.Error e) (Result.Error e))))))
 
   (doc chat-stream "sends a streaming chat request and returns an `LlmStream`.

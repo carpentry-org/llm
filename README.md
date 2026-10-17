@@ -52,9 +52,15 @@ constructor:
         (match (LlmStream.poll &stream)
           (Maybe.Nothing) (break)
           (Maybe.Just tok) (IO.print &tok)))
+      (println* "\n" (LlmStream.stop-reason &stream)
+                ", " @(LlmStream.output-tokens &stream) " tokens")
       (LlmStream.close stream))
   (Result.Error e) (IO.errorln &(LLMError.str &e)))
 ```
+
+Once the stream ends, `LlmStream.stop-reason`, `input-tokens` and
+`output-tokens` hold the same values `LLMResponse` would; they stay `""` and `0`
+if the stream is cut off before the provider sends them.
 
 ### Streaming with tool calls
 
@@ -247,6 +253,9 @@ applies per request, not to the loop as a whole.
 | `LLM.chat-stream config req` | Streaming chat. Returns `(Result LlmStream LLMError)` |
 | `LlmStream.poll stream` | Returns `(Maybe String)` — next text token, or `Nothing` when done |
 | `LlmStream.poll-event stream` | Returns `(Maybe StreamEvent)` — text or tool call event, or `Nothing` when done |
+| `LlmStream.stop-reason stream` | Why the response ended, as in `LLMResponse` (`""` until reported) |
+| `LlmStream.input-tokens stream` | Prompt tokens, as in `LLMResponse` (`0` until reported) |
+| `LlmStream.output-tokens stream` | Generated tokens, as in `LLMResponse` (`0` until reported) |
 | `LLM.embed config req` | Generate embeddings. Returns `(Result EmbeddingResponse LLMError)` |
 | `LLM.chat-with-retry config req policy` | `chat`, retrying per the `RetryPolicy` |
 | `LLM.chat-loop-with-retry config model msgs max-tokens temp tools handler max-iters policy` | `chat-loop`, retrying each request |
