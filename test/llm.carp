@@ -262,6 +262,122 @@ data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"!\"}],\"role\": 
 
 ")
 
+(defn openai-args-body []
+  @"{\"id\":\"chatcmpl-B9MHDbslfkBeAs8l4bebGdFOJ6PeG\",\"object\":\"chat.completion\",\"model\":\"gpt-4o-mini-2024-07-18\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_9pw1qnYScqvGrCH58HWCvFH6\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"}}],\"refusal\":null},\"logprobs\":null,\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":82,\"completion_tokens\":17,\"total_tokens\":99}}")
+
+(defn openai-args-wire []
+  @"data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"index\":0,\"id\":\"call_9pw1qnYScqvGrCH58HWCvFH6\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}
+
+data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"\"}}]},\"finish_reason\":null}]}
+
+data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"city\"}}]},\"finish_reason\":null}]}
+
+data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\":\\\"\"}}]},\"finish_reason\":null}]}
+
+data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"Paris\"}}]},\"finish_reason\":null}]}
+
+data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"}\"}}]},\"finish_reason\":null}]}
+
+data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}
+
+data: [DONE]
+
+")
+
+(defn ollama-args-body []
+  @"{\"model\":\"llama3.2\",\"created_at\":\"2025-07-07T20:22:19.184789Z\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done_reason\":\"stop\",\"done\":true,\"prompt_eval_count\":122,\"eval_count\":33}")
+
+(defn ollama-args-wire []
+  @"{\"model\":\"llama3.2\",\"created_at\":\"2025-07-07T20:22:19.18Z\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Paris\"}}}]},\"done\":false}
+{\"model\":\"llama3.2\",\"created_at\":\"2025-07-07T20:22:19.42Z\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done_reason\":\"stop\",\"done\":true,\"prompt_eval_count\":122,\"eval_count\":33}
+")
+
+(defn anthropic-args-body []
+  @"{\"id\":\"msg_01Aq9w938a90dw8q\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-20250514\",\"content\":[{\"type\":\"text\",\"text\":\"I'll check the weather.\"},{\"type\":\"tool_use\",\"id\":\"toolu_01A09q90qw90lq917835lq9\",\"name\":\"get_weather\",\"input\":{\"city\":\"Paris\"}}],\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":384,\"output_tokens\":56}}")
+
+(defn anthropic-args-wire [] @"event: content_block_start
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01A09q90qw90lq917835lq9\",\"name\":\"get_weather\",\"input\":{}}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\": \\\"Par\"}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"is\\\"}\"}}
+
+event: content_block_stop
+data: {\"type\":\"content_block_stop\",\"index\":0}
+
+event: message_stop
+data: {\"type\":\"message_stop\"}
+
+")
+
+(defn anthropic-no-args-wire [] @"event: content_block_start
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01T1x1fJ34qAmk2tNTrN7Up6\",\"name\":\"get_time\",\"input\":{}}}
+
+event: content_block_delta
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}}
+
+event: content_block_stop
+data: {\"type\":\"content_block_stop\",\"index\":0}
+
+event: message_stop
+data: {\"type\":\"message_stop\"}
+
+")
+
+(defn gemini-args-body []
+  @"{\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"get_weather\",\"args\": {\"city\": \"Paris\"}}}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 51,\"candidatesTokenCount\": 5,\"totalTokenCount\": 56},\"modelVersion\": \"gemini-2.0-flash\"}")
+
+(defn gemini-no-args-body []
+  @"{\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"get_time\"}}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"modelVersion\": \"gemini-2.0-flash\"}")
+
+(defn sse [body]
+  (String.concat &[@"data: " @body (String.from-chars &[\newline])]))
+
+(defn args-of [calls] (Array.copy-map &(fn [tc] @(ToolCall.arguments tc)) calls))
+
+(defn parsed-calls [provider body]
+  (match (llm-parse-success provider body)
+    (Result.Success r) @(LLMResponse.tool-calls &r)
+    _ []))
+
+(defn streamed-calls [provider linebuf]
+  (let-do [s (make-test-llm-stream provider linebuf)
+           calls (the (Array ToolCall) [])
+           go true]
+    (while go
+      (match (LlmStream.poll-event &s)
+        (Maybe.Nothing) (set! go false)
+        (Maybe.Just evt)
+          (match evt
+            (StreamEvent.ToolCallEvent tc)
+              (set! calls (Array.push-back calls tc))
+            _ ())))
+    (LlmStream.close s)
+    calls))
+
+(defn json-at [j path]
+  (match (JSON.get-in j path) (Maybe.Just v) (llm-json-to-str &v) _ @"<missing>"))
+
+(defn sent-back [provider calls path]
+  (let [req (LLM.chat-request "m"
+                              [(Message.user "q")
+                               (Message.init (Role.Assistant) @"" calls @"" [])]
+                              100
+                              0.5)]
+    (match (JSON.parse &(llm-build-body provider &req))
+      (Result.Success j) (json-at &j path)
+      _ @"<unparseable>")))
+
+(defn gemini-result-of [content]
+  (json-at
+    &(gemini-message-to-json &(Message.tool-result "f" content))
+    &[@"parts" @"0" @"functionResponse" @"response"]))
+
 (deftest test
   (assert-equal test
     "user"
@@ -2520,12 +2636,11 @@ data: [DONE]
           (match (JSON.nth &arr 0)
             (Maybe.Just block)
               (match (JSON.get &block "input")
-                (Maybe.Just inp)
-                  (= &(Maybe.from (JSON.as-str &inp) @"") "not-json")
+                (Maybe.Just inp) (= &(llm-json-to-str &inp) "{}")
                 _ false)
             _ false)
         _ false))
-    "Anthropic tool_use falls back to string for invalid JSON arguments")
+    "Anthropic tool_use sends an empty input object for invalid JSON arguments")
 
   (assert-true test
     (let [m (Message.user "hello")
@@ -3017,6 +3132,139 @@ data: {\"type\":\"message_stop\"}
     &[@"stop:STOP in:51 out:5"]
     &(drain-tokens-meta "gemini" (gemini-tool-wire))
     "poll reports the stop of a Gemini functionCall stream")
+
+  (assert-equal test
+    &[@"{\"city\":\"Paris\"}"]
+    &(args-of &(parsed-calls "openai" &(openai-args-body)))
+    "OpenAI parse-response keeps the arguments string as sent")
+
+  (assert-equal test
+    &[@"{\"city\":\"Paris\"}"]
+    &(args-of &(streamed-calls "openai" (openai-args-wire)))
+    "poll-event joins OpenAI argument fragments into the arguments string")
+
+  (assert-equal test
+    "\"{\\\"city\\\":\\\"Paris\\\"}\""
+    &(sent-back "openai"
+                (parsed-calls "openai" &(openai-args-body))
+                &[@"messages" @"1" @"tool_calls" @"0" @"function" @"arguments"])
+    "OpenAI sends parsed tool-call arguments back as a JSON string")
+
+  (assert-equal test
+    "\"{\\\"city\\\":\\\"Paris\\\"}\""
+    &(sent-back "openai"
+                (streamed-calls "openai" (openai-args-wire))
+                &[@"messages" @"1" @"tool_calls" @"0" @"function" @"arguments"])
+    "OpenAI sends streamed tool-call arguments back as a JSON string")
+
+  (assert-equal test
+    "\"{}\""
+    &(sent-back "openai"
+                [(ToolCall.init @"call_1" @"get_time" @"")]
+                &[@"messages" @"1" @"tool_calls" @"0" @"function" @"arguments"])
+    "OpenAI sends empty tool-call arguments as the string {}")
+
+  (assert-equal test
+    &[@"{\"city\":\"Paris\"}"]
+    &(args-of &(parsed-calls "ollama" &(ollama-args-body)))
+    "Ollama parse-response encodes the arguments object as a string")
+
+  (assert-equal test
+    &[@"{\"city\":\"Paris\"}"]
+    &(args-of &(streamed-calls "ollama" (ollama-args-wire)))
+    "poll-event encodes Ollama's arguments object as a string")
+
+  (assert-equal test
+    "{\"city\":\"Paris\"}"
+    &(sent-back "ollama"
+                (parsed-calls "ollama" &(ollama-args-body))
+                &[@"messages" @"1" @"tool_calls" @"0" @"function" @"arguments"])
+    "Ollama sends tool-call arguments back as an object")
+
+  (assert-equal test
+    "{}"
+    &(sent-back "ollama"
+                [(ToolCall.init @"" @"get_time" @"")]
+                &[@"messages" @"1" @"tool_calls" @"0" @"function" @"arguments"])
+    "Ollama sends empty tool-call arguments as an empty object")
+
+  (assert-equal test
+    "{}"
+    &(sent-back "ollama"
+                [(ToolCall.init @"" @"f" @"[1,2]")]
+                &[@"messages" @"1" @"tool_calls" @"0" @"function" @"arguments"])
+    "Ollama sends tool-call arguments that are not a JSON object as an empty object")
+
+  (assert-equal test
+    &[@"{\"city\":\"Paris\"}"]
+    &(args-of &(parsed-calls "anthropic" &(anthropic-args-body)))
+    "Anthropic parse-response encodes the input object as a string")
+
+  (assert-equal test
+    &[@"{\"city\": \"Paris\"}"]
+    &(args-of &(streamed-calls "anthropic" (anthropic-args-wire)))
+    "poll-event joins Anthropic input_json_delta fragments into the arguments string")
+
+  (assert-equal test
+    "{\"city\":\"Paris\"}"
+    &(sent-back "anthropic"
+                (streamed-calls "anthropic" (anthropic-args-wire))
+                &[@"messages" @"1" @"content" @"0" @"input"])
+    "Anthropic sends tool-call arguments back as an input object")
+
+  (assert-equal test
+    &[@"{}"]
+    &(args-of &(streamed-calls "anthropic" (anthropic-no-args-wire)))
+    "poll-event gives a streamed Anthropic call without input the arguments {}")
+
+  (assert-equal test
+    "{}"
+    &(sent-back "anthropic"
+                (streamed-calls "anthropic" (anthropic-no-args-wire))
+                &[@"messages" @"1" @"content" @"0" @"input"])
+    "Anthropic sends a call without input back as an empty input object")
+
+  (assert-equal test
+    &[@"{\"city\":\"Paris\"}"]
+    &(args-of &(parsed-calls "gemini" &(gemini-args-body)))
+    "Gemini parse-response encodes the args object as a string")
+
+  (assert-equal test
+    &[@"{\"city\":\"Paris\"}"]
+    &(args-of &(streamed-calls "gemini" (sse &(gemini-args-body))))
+    "poll-event encodes Gemini's args object as a string")
+
+  (assert-equal test
+    "{\"city\":\"Paris\"}"
+    &(sent-back "gemini"
+                (parsed-calls "gemini" &(gemini-args-body))
+                &[@"contents" @"1" @"parts" @"0" @"functionCall" @"args"])
+    "Gemini sends tool-call arguments back as an args object")
+
+  (assert-equal test
+    &[@"{}"]
+    &(args-of &(parsed-calls "gemini" &(gemini-no-args-body)))
+    "Gemini parse-response gives a functionCall without args the arguments {}")
+
+  (assert-equal test
+    &[@"{}"]
+    &(args-of &(streamed-calls "gemini" (sse &(gemini-no-args-body))))
+    "poll-event gives a Gemini functionCall without args the arguments {}")
+
+  (assert-equal test
+    "{}"
+    &(sent-back "gemini"
+                (parsed-calls "gemini" &(gemini-no-args-body))
+                &[@"contents" @"1" @"parts" @"0" @"functionCall" @"args"])
+    "Gemini sends a call without args back as an empty args object")
+
+  (assert-equal test
+    &[@"{\"result\":22}"
+      @"{\"result\":true}"
+      @"{\"result\":\"x\"}"
+      @"{\"result\":[1]}"]
+    &(Array.copy-map &gemini-result-of &[@"22" @"true" @"\"x\"" @"[1]"])
+    "Gemini wraps a tool result that is JSON but not an object in a result object")
 
   (assert-equal test
     1

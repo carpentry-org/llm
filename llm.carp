@@ -391,6 +391,13 @@ array of content parts (OpenAI format).")
                                 (JSON.Str @(ToolDef.description td)))
                     (JSON.entry @"parameters" @(ToolDef.parameters td))]))]))
 
+(defn llm-tool-args-text [args] (if (String.empty? args) @"{}" @args))
+
+(defn llm-tool-args-object [args]
+  (match (JSON.parse args)
+    (Result.Success j) (if (JSON.obj? &j) j (JSON.obj []))
+    _ (JSON.obj [])))
+
 (defn llm-parse-openai-tool-calls [j]
   (match (JSON.get j "tool_calls")
     (Maybe.Just arr)
@@ -403,7 +410,10 @@ array of content parts (OpenAI format).")
                                (llm-json-str tc &[@"function" @"name"])
                                (match (JSON.get-in tc
                                                    &[@"function" @"arguments"])
-                                 (Maybe.Just args) (llm-json-to-str &args)
+                                 (Maybe.Just args)
+                                   (match (JSON.as-str &args)
+                                     (Maybe.Just s) s
+                                     _ (llm-json-to-str &args))
                                  _ @""))))
             &boxes)
         _ [])
@@ -412,18 +422,18 @@ array of content parts (OpenAI format).")
 (defn llm-messages-to-json [msgs]
   (JSON.Arr (Array.copy-map &(fn [m] (Box.init (Message.to-json m))) msgs)))
 
+(defn llm-tool-call-json [tc args]
+  (Box.init
+    (JSON.obj
+      [(JSON.entry @"id" (JSON.Str @(ToolCall.id tc)))
+       (JSON.entry @"type" (JSON.Str @"function"))
+       (JSON.entry @"function"
+                   (JSON.obj
+                     [(JSON.entry @"name" (JSON.Str @(ToolCall.name tc)))
+                      (JSON.entry @"arguments" args)]))])))
+
 (defn llm-tool-call-to-json [tc]
-  (let [args-json (match (JSON.parse (ToolCall.arguments tc))
-          (Result.Success j) j
-          _ (JSON.Str @(ToolCall.arguments tc)))]
-    (Box.init
-      (JSON.obj
-        [(JSON.entry @"id" (JSON.Str @(ToolCall.id tc)))
-         (JSON.entry @"type" (JSON.Str @"function"))
-         (JSON.entry @"function"
-                     (JSON.obj
-                       [(JSON.entry @"name" (JSON.Str @(ToolCall.name tc)))
-                        (JSON.entry @"arguments" args-json)]))]))))
+  (llm-tool-call-json tc (JSON.Str (llm-tool-args-text (ToolCall.arguments tc)))))
 
 (defn llm-tool-calls-to-json [tcs]
   (JSON.Arr (Array.copy-map &llm-tool-call-to-json tcs)))
@@ -434,10 +444,11 @@ array of content parts (OpenAI format).")
                      (JSON.entry @"tool_calls" (llm-tool-calls-to-json tcs)))
     entries))
 
+(defn llm-ollama-tool-call-to-json [tc]
+  (llm-tool-call-json tc (llm-tool-args-object (ToolCall.arguments tc))))
+
 (defn llm-anthropic-tool-use-block [tc]
-  (let [inp (match (JSON.parse (ToolCall.arguments tc))
-          (Result.Success j) j
-          _ (JSON.Str @(ToolCall.arguments tc)))]
+  (let [inp (llm-tool-args-object (ToolCall.arguments tc))]
     (Box.init
       (JSON.obj
         [(JSON.entry @"type" (JSON.Str @"tool_use"))
@@ -518,8 +529,13 @@ array of content parts (OpenAI format).")
                            (JSON.entry @"tool_call_id"
                                        (JSON.Str @(Message.tool-call-id m))))
           with-images)
-        with-calls (llm-append-tool-calls-entry with-tool-id
-                                                (Message.tool-calls m))]
+        with-calls (if (Array.empty? (Message.tool-calls m))
+          with-tool-id
+          (Array.push-back with-tool-id
+                           (JSON.entry @"tool_calls"
+                                       (JSON.Arr
+                                         (Array.copy-map &llm-ollama-tool-call-to-json
+                                                         (Message.tool-calls m))))))]
     (JSON.obj with-calls)))
 
 (defn llm-filter-non-system [msgs]
@@ -1172,10 +1188,12 @@ array of content parts (OpenAI format).")
     (Role.Tool)
     ; Gemini: tool results must be role "user" with functionResponse parts.
     ; tool-call-id stores the function name for Gemini (no call IDs).
-    (let [resp-obj (match (JSON.parse (Message.content m))
+    (let [content (match (JSON.parse (Message.content m))
             (Result.Success j) j
-            _
-              (JSON.obj [(JSON.entry @"result" (JSON.Str @(Message.content m)))]))]
+            _ (JSON.Str @(Message.content m)))
+          resp-obj (if (JSON.obj? &content)
+            content
+            (JSON.obj [(JSON.entry @"result" content)]))]
       (JSON.obj
         [(JSON.entry @"role" (JSON.Str @"user"))
          (JSON.entry @"parts"
@@ -1195,9 +1213,7 @@ array of content parts (OpenAI format).")
             (the (Array (Box JSON)) []))
           fc-parts (Array.copy-map
             &(fn [tc]
-              (let [args-json (match (JSON.parse (ToolCall.arguments tc))
-                      (Result.Success j) j
-                      _ (JSON.Str @(ToolCall.arguments tc)))]
+              (let [args-json (llm-tool-args-object (ToolCall.arguments tc))]
                 (Box.init
                   (JSON.obj
                     [(JSON.entry @"functionCall"
@@ -1347,7 +1363,7 @@ array of content parts (OpenAI format).")
                                                                        @"args"])
                                                    (Maybe.Just args)
                                                      (llm-json-to-str &args)
-                                                   _ @""))))
+                                                   _ @"{}"))))
                               &fc-parts))
                         _ [])
                     _ [])
@@ -1458,7 +1474,7 @@ array of content parts (OpenAI format).")
                                                                                   (Maybe.Just a)
                                                                                     (llm-json-to-str &a)
                                                                                   _
-                                                                                    @"")))))
+                                                                                    @"{}")))))
                                       _
                                         (let [tok (llm-json-str part &[@"text"])
                                               is-thought (Gemini.thought? part)]
@@ -1884,7 +1900,7 @@ cut off first, they are `\"\"` and `0`.
   (when (> (String.length (LlmStream.tc-id s)) 0)
     (let-do [tc (ToolCall.init @(LlmStream.tc-id s)
                                @(LlmStream.tc-name s)
-                               @(LlmStream.tc-args s))]
+                               (llm-tool-args-text (LlmStream.tc-args s)))]
       (llm-enqueue-event s (StreamEvent.ToolCallEvent tc))
       (LlmStream.set-tc-id! s @"")
       (LlmStream.set-tc-name! s @"")
