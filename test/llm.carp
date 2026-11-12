@@ -373,6 +373,15 @@ data: {\"type\":\"message_stop\"}
       (Result.Success j) (json-at &j path)
       _ @"<unparseable>")))
 
+(defn token-limit-fields [body]
+  (match (JSON.parse body)
+    (Result.Success j)
+      (String.concat &[@"max_completion_tokens="
+                       (json-at &j &[@"max_completion_tokens"])
+                       @" max_tokens="
+                       (json-at &j &[@"max_tokens"])])
+    _ @"<unparseable>"))
+
 (defn gemini-result-of [content]
   (json-at
     &(gemini-message-to-json &(Message.tool-result "f" content))
@@ -420,6 +429,20 @@ data: {\"type\":\"message_stop\"}
               _ false))
         _ false))
     "OpenAI.build-request produces valid JSON with model and messages")
+
+  (assert-equal test
+    "max_completion_tokens=250 max_tokens=<missing>"
+    &(token-limit-fields
+      &(OpenAI.build-request
+        &(LLM.chat-request "o3" [(Message.user "hi")] 250 1.0)))
+    "OpenAI.build-request sends the token limit as max_completion_tokens")
+
+  (assert-equal test
+    "max_completion_tokens=250 max_tokens=<missing>"
+    &(token-limit-fields
+      &(OpenAI.build-stream-request
+        &(LLM.chat-request "o3" [(Message.user "hi")] 250 1.0)))
+    "OpenAI.build-stream-request sends the token limit as max_completion_tokens")
 
   (assert-true test
     (let [body "{\"choices\":[{\"message\":{\"content\":\"hi there\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3}}"]

@@ -659,7 +659,7 @@ array of content parts (OpenAI format).")
     (let [msgs (llm-messages-to-json (LLMRequest.messages req))
           base [(JSON.entry @"model" (JSON.Str @(LLMRequest.model req)))
                 (JSON.entry @"messages" msgs)
-                (JSON.entry @"max_tokens"
+                (JSON.entry @"max_completion_tokens"
                             (JSON.Num
                               (Double.from-int @(LLMRequest.max-tokens req))))
                 (JSON.entry @"temperature"
